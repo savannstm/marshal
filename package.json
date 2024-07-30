@@ -1,6 +1,6 @@
 {
     "name": "@savannstm/marshal",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "author": "hyrious <hyrious@outlook.com>",
     "contributors": [
         "savannstm <savannstm@gmail.com>"
@@ -21,9 +21,9 @@
         "default": "./dist/marshal.mjs"
     },
     "type": "module",
-    "module": "index.ts",
-    "main": "dist/bundle.js",
-    "types": "dist/bundle.d.ts",
+    "module": "./dist/marshal.mjs",
+    "main": "./dist/marshal.js",
+    "types": "./dist/marshal.d.ts",
     "files": [
         "dist",
         "src"
@@ -40,6 +40,7 @@
         "eslint": "^9.8.0",
         "rollup": "^4.19.1",
         "rollup-plugin-dts": "^6.1.1",
+        "tslib": "^2.6.3",
         "typescript-eslint": "^7.18.0",
         "uvu": "^0.5.6"
     },

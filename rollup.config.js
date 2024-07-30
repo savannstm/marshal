@@ -7,12 +7,12 @@ export default [
         input: "./src/index.ts",
         output: [
             {
-                file: "dist/bundle.mjs",
+                file: "dist/marshal.mjs",
                 format: "es",
                 sourcemap: true,
             },
             {
-                file: "dist/bundle.js",
+                file: "dist/marshal.js",
                 format: "cjs",
                 sourcemap: true,
             },
@@ -22,7 +22,7 @@ export default [
     {
         input: "./src/index.ts",
         output: {
-            file: "dist/bundle.d.ts",
+            file: "dist/marshal.d.ts",
             format: "es",
         },
 

@@ -132,14 +132,10 @@ class Dumper {
         if (long === 0) {
             buffer[0] = 0;
             return 1;
-        }
-
-        if (0 < long && long < 123) {
+        } else if (0 < long && long < 123) {
             buffer[0] = long + 5;
             return 1;
-        }
-
-        if (-124 < long && long < 0) {
+        } else if (-124 < long && long < 0) {
             buffer[0] = (long - 5) & 0xff;
             return 1;
         }
@@ -149,11 +145,11 @@ class Dumper {
         for (i = 1; i < 5; i++) {
             buffer[i] = long & 0xff;
             long >>= 8;
+
             if (long === 0) {
                 buffer[0] = i;
                 break;
-            }
-            if (long === -1) {
+            } else if (long === -1) {
                 buffer[0] = -i;
                 break;
             }
@@ -163,7 +159,7 @@ class Dumper {
     }
 
     private writeFloat(float: number) {
-        let floatString;
+        let floatString: string;
 
         switch (true) {
             case Number.isNaN(float):
@@ -289,9 +285,9 @@ class Dumper {
     }
 
     private writeObject(object: unknown) {
-        const known = this.options.encodeKnown || {};
-        const unknownClassEncoding = this.options.encodeUnknown;
-        const stringToInstanceVar = this.options.convertStringsToInstanceVar;
+        const encodeKnown = this.options.encodeKnown || {};
+        const encodeUnknown = this.options.encodeUnknown;
+        const convertStringsToInstanceVar = this.options.convertStringsToInstanceVar;
 
         switch (true) {
             case object === undefined:
@@ -356,10 +352,12 @@ class Dumper {
                     this.writeUserClass(object);
                     this.writeObject(object.wrapped);
                 } else if (object.userDefined) {
-                    const keys = stringToInstanceVar ? Object.keys(object) : null;
-                    const hasInstanceVar = stringToInstanceVar
-                        ? (keys as string[]).length > 0
-                        : Object.getOwnPropertySymbols(object).length > 0;
+                    const keys =
+                        convertStringsToInstanceVar || convertStringsToInstanceVar === "" ? Object.keys(object) : null;
+                    const hasInstanceVar =
+                        convertStringsToInstanceVar || convertStringsToInstanceVar === ""
+                            ? (keys as string[]).length > 0
+                            : Object.getOwnPropertySymbols(object).length > 0;
 
                     if (hasInstanceVar) {
                         this.writeByte(Constants.InstanceVar);
@@ -369,25 +367,25 @@ class Dumper {
                     this.writeBytes(object.userDefined);
 
                     if (hasInstanceVar) {
-                        if (stringToInstanceVar) {
-                            this.convertKeysToSymbols(object, stringToInstanceVar);
+                        if (convertStringsToInstanceVar || convertStringsToInstanceVar === "") {
+                            this.convertKeysToSymbols(object, convertStringsToInstanceVar);
                         }
 
-                        this.writeInstanceVar(object, stringToInstanceVar);
+                        this.writeInstanceVar(object, convertStringsToInstanceVar);
                     }
                 } else if (object.userMarshal !== undefined) {
                     this.writeClass(Constants.UserMarshal, object);
                     this.writeObject(object.userMarshal);
                 } else {
                     this.writeClass(Constants.Object, object);
-                    this.writeInstanceVar(object, stringToInstanceVar);
+                    this.writeInstanceVar(object, convertStringsToInstanceVar);
                 }
                 break;
             }
             case object instanceof RubyStruct:
                 this.writeRemember(object);
                 this.writeClass(Constants.Struct, object);
-                this.writeInstanceVar(object.members as Record<symbol, unknown>, stringToInstanceVar);
+                this.writeInstanceVar(object.members as Record<symbol, unknown>, convertStringsToInstanceVar);
                 break;
             case Array.isArray(object):
                 this.writeRemember(object);
@@ -402,6 +400,7 @@ class Dumper {
                 this.writeRemember(object);
                 this.writeByte(Constants.RegExp);
                 this.writeString(object.source);
+
                 let options = 0;
 
                 if (object.flags.includes("i")) {
@@ -454,6 +453,7 @@ class Dumper {
                 const number = object.entries.length;
                 for (let i = 0; i < number; ++i) {
                     const [key, value] = object.entries[i];
+
                     this.writeObject(key);
                     this.writeObject(value);
                 }
@@ -492,7 +492,6 @@ class Dumper {
                 this.writeLong(keys.length);
 
                 const number = keys.length;
-
                 for (let i = 0; i < number; ++i) {
                     const key = keys[i];
                     let actualKey: null | number | symbol = null;
@@ -502,6 +501,8 @@ class Dumper {
                             actualKey = Symbol.for(key.slice(8));
                         } else if (key.startsWith("iINTEGERi")) {
                             actualKey = Number.parseInt(key.slice(9));
+                        } else if (key.startsWith("oOBJECTo")) {
+                            actualKey = JSON.parse(key.slice(8));
                         }
                     }
 
@@ -518,18 +519,18 @@ class Dumper {
             default: {
                 const prototype = Object.getPrototypeOf(object);
 
-                for (const classString in known) {
-                    if (prototype === known[classString].prototype) {
-                        this.writeKnown(object, classString, stringToInstanceVar);
+                for (const classString in encodeKnown) {
+                    if (prototype === encodeKnown[classString].prototype) {
+                        this.writeKnown(object, classString, convertStringsToInstanceVar);
                         return;
                     }
                 }
 
-                if (unknownClassEncoding) {
-                    const symbol = unknownClassEncoding(object);
+                if (encodeUnknown) {
+                    const symbol = encodeUnknown(object);
 
                     if (symbol) {
-                        this.writeKnown(object, symbol, stringToInstanceVar);
+                        this.writeKnown(object, symbol, convertStringsToInstanceVar);
                         return;
                     }
                 }

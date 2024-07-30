@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+-   Fixed improper handling of `convertInstanceVarsToString` options property of `load()` and `convertStringsToInstanceVar` of `dump()`.
+-   When `hash` property of `load()` is not set to `map` or `wrap`, plain object to which Ruby hash is decoded tries to preserve object keys' types by stringifiying these objects, prefixing them with "oOBJECTo" and setting them as object's keys.
+-   Fixed missed type declaration for mjs module.
+
 ## 0.4.0
 
 -   :warning: BREAKING. Read the [API Reference](./docs/api.md) to learn the new API.

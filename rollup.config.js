@@ -21,10 +21,16 @@ export default [
     },
     {
         input: "./src/index.ts",
-        output: {
-            file: "dist/marshal.d.ts",
-            format: "es",
-        },
+        output: [
+            {
+                file: "dist/marshal.d.ts",
+                format: "es",
+            },
+            {
+                file: "dist/marshal.d.mts",
+                format: "es",
+            },
+        ],
 
         plugins: [dts()],
     },

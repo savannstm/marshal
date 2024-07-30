@@ -68,7 +68,7 @@ export interface LoadOptions {
      * load(data, { convertInstanceVarsToString: "_" }) // => RubyObject { "_a": 1 }
      * ```
      */
-    convertInstanceVarsToString?: boolean | string;
+    readonly convertInstanceVarsToString?: boolean | string;
 
     /**
      * If set, use this known classes to decode ruby objects.

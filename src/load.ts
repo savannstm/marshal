@@ -48,11 +48,11 @@ class Loader {
         this.options = options;
     }
 
-    empty() {
+    public empty() {
         return !(this.pos < this.view.byteLength);
     }
 
-    get() {
+    public get() {
         if (this.pos + 2 >= this.view.byteLength) {
             throw new TypeError("Marshal data is too short.");
         }
@@ -198,6 +198,9 @@ class Loader {
             case key instanceof RubyInteger || key instanceof RubyFloat:
                 hash[key.value] = value;
                 break;
+            case key instanceof RubyObject || typeof key === "object":
+                key = `oOBJECTo${JSON.stringify(key)}`;
+                hash[key as string] = value;
         }
 
         return hash;
@@ -212,7 +215,7 @@ class Loader {
         if (convertInstanceVarsToString || convertInstanceVarsToString === "") {
             const symbolString = Symbol.keyFor(key as symbol) as string;
 
-            if (convertInstanceVarsToString === true) {
+            if (convertInstanceVarsToString || convertInstanceVarsToString === "") {
                 // @ts-expect-error object can be indexed by string
                 object[symbolString] = value;
             } else {
@@ -234,8 +237,8 @@ class Loader {
         const string = this.options.string;
         const numeric = this.options.numeric === "wrap";
         const wrapRegExp = this.options.regexp === "wrap";
-        const instanceVarToString = this.options.convertInstanceVarsToString;
-        const known = this.options.decodeKnown || {};
+        const convertInstanceVarsToString = this.options.convertInstanceVarsToString;
+        const decodeKnown = this.options.decodeKnown || {};
 
         switch (type) {
             case Constants.Nil:
@@ -281,7 +284,7 @@ class Loader {
                     else if (object != null) {
                         // Primitive types (boolean, number, string, symbol, ...) cannot hold properties,
                         // So code below silently fail. Other objects get a [Symbol(@key)] property
-                        this.setInstanceVar(object, key, value, instanceVarToString);
+                        this.setInstanceVar(object, key, value, convertInstanceVarsToString);
                     }
                 }
 
@@ -386,7 +389,7 @@ class Loader {
             }
             case Constants.Object: {
                 const classSymbol = this.readNext() as symbol;
-                const classLike = known[Symbol.keyFor(classSymbol) as string];
+                const classLike = decodeKnown[Symbol.keyFor(classSymbol) as string];
                 const object: RubyObject = this.pushObject(
                     classLike ? Object.create(classLike.prototype) : new RubyObject(classSymbol)
                 );
@@ -396,7 +399,7 @@ class Loader {
                     const key = this.readNext();
                     const value = this.readNext();
 
-                    this.setInstanceVar(object, key, value, instanceVarToString);
+                    this.setInstanceVar(object, key, value, convertInstanceVarsToString);
                 }
 
                 return object;

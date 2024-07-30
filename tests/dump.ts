@@ -85,7 +85,7 @@ describe("dump", (test) => {
         const objSymbolStringKeys = { ":SYMBOL:a": 1, ":SYMBOL:b": 2 };
 
         assert.is(await dumps(obj), '{"a"=>1, "b"=>2}');
-        assert.is(await dumps(objSymbolStringKeys, { hashStringKeysToSymbol: true }), "{:a=>1, :b=>2}");
+        assert.is(await dumps(objSymbolStringKeys), "{:a=>1, :b=>2}");
     });
 
     test("error on undefined", async () => {
@@ -143,8 +143,8 @@ describe("dump", (test) => {
         }
 
         const pre = "class A end";
-        assert.match(await dumps(a, { pre, encodeWithKnown: { A } }), /^#<A:0x[a-f0-9]+>$/);
-        assert.match(await dumps(a, { pre, encodeWithUnknown: (a) => a?.constructor?.name }), /^#<A:0x[a-f0-9]+>$/);
+        assert.match(await dumps(a, { pre, encodeKnown: { A } }), /^#<A:0x[a-f0-9]+>$/);
+        assert.match(await dumps(a, { pre, encodeUnknown: (a) => a?.constructor?.name }), /^#<A:0x[a-f0-9]+>$/);
     });
 
     test("struct", async () => {

@@ -1,26 +1,26 @@
-# @hyrious/marshal
+# @savannstm/marshal
 
 ## Table of Contents
 
-- [load(data, options?)](#loaddata-options)
-  - [options.string: `"utf8"` | `"binary"`](#optionsstring-utf8--binary)
-  - [options.numeric: `"wrap"`](#optionsnumeric-wrap)
-  - [options.hashSymbolKeysToString: `true`](#optionshashsymbolkeystostring-true)
-  - [options.hash: `"map"` | `"wrap"`](#optionshash-map--wrap)
-  - [options.regexp: `"wrap"`](#optionsregexp-wrap)
-  - [options.ivarToString: `true` | `string`](#optionsivartostring-true--string)
-  - [options.known: `{ class }`](#optionsknown--class-)
-- [dump(value, options?)](#dumpvalue-options)
-  - [options.hashStringKeysToSymbol: `true`](#optionshashstringkeystosymbol-true)
-  - [options.known: `{ class }`](#optionsknown--class--1)
-  - [options.unknown: `(obj) => string`](#optionsunknown-obj--string)
+-   [load(data, options?)](#loaddata-options)
+    -   [options.string: `"utf8"` | `"binary"`](#optionsstring-utf8--binary)
+    -   [options.numeric: `"wrap"`](#optionsnumeric-wrap)
+    -   [options.hashSymbolKeysToString: `true`](#optionshashsymbolkeystostring-true)
+    -   [options.hash: `"map"` | `"wrap"`](#optionshash-map--wrap)
+    -   [options.regexp: `"wrap"`](#optionsregexp-wrap)
+    -   [options.convertInstanceVarsToString: `true` | `string`](#optionsconvertinstancevarstostring-true--string)
+    -   [options.decodeKnown: `{ class }`](#optionsdecodeknown--class-)
+-   [dump(value, options?)](#dumpvalue-options)
+    -   [options.convertStringsToInstanceVar](#optionsconvertstringstoinstancevar-true--string)
+    -   [options.encodeKnown: `{ class }`](#optionsencodeknown--class-)
+    -   [options.encodeUnknown: `(obj) => string`](#optionsencodeunknown-obj--string)
 
 ## load(data, options?)
 
-Parse a Ruby marshal data to a JavaScript value..
+Parse a Ruby marshal data to a JavaScript value.
 
-- `data` {string | Uint8Array | ArrayBuffer} The marshal data.
-- `options` {Object} Parse options.
+-   `data` {string | Uint8Array | ArrayBuffer} The marshal data.
+-   `options` {Object} Parse options.
 
 When the `data` is a string, it is firstly encoded into `Uint8Array`,
 this should give you a convenience to use this function like in Ruby:
@@ -71,6 +71,7 @@ load(data, { numeric: "wrap" }); // => RubyFloat { value: 0 }
 ### options.hashSymbolKeysToString: `true`
 
 Convert symbol keys in hash to string.
+They're converted back to symbols when dumping automatically.
 
 ```rb
 data = Marshal.dump({ a: 1 })
@@ -85,6 +86,7 @@ load(data, { hashSymbolKeysToString: true }); // => { a: 1 }
 
 Wrap ruby Hash in `Map` or the `RubyHash` class.
 `hashSymbolKeysToString` is ignored when this option is set.
+Setting this to either "map" or "wrap" can solve issues related to key types, because default value uses objects that converts all keys to strings.
 
 ```rb
 data = Marshal.dump({ a: 1 })
@@ -108,21 +110,22 @@ load(data); // => /cat/im
 load(data, { regexp: "wrap" }); // => RubyRegexp { source: 'cat', options: 7 }
 ```
 
-To test these flags, you can read the constants named `RE_*` from this library:
+To test these flags, you can read the constants named `RegExp*` from `Constants` enum of this library:
 
 <samp>
 
-| Constant      | Value |
-| ------------- | ----- |
-| RE_IGNORECASE | 1     |
-| RE_EXTENDED   | 2     |
-| RE_MULTILINE  | 4     |
+| Constant         | Value |
+| ---------------- | ----- |
+| RegExpIgnoreCase | 1     |
+| RegExpExtended   | 2     |
+| RegExpMultiline  | 4     |
 
 </samp>
 
-### options.ivarToString: `true` \| `string`
+### options.convertInstanceVarsToString: `true` \| `string`
 
 Convert instance variable names to string props in JS objects.
+Their names can and should be reverted to initial values with options.convertStringsToInstanceVar in dump().
 
 ```rb
 a = Object.new
@@ -132,12 +135,12 @@ data = Marshal.dump(a)
 
 ```js
 load(data); // => RubyObject { Symbol(@a): 1 }
-load(data, { ivarToString: true }); // => RubyObject { "@a": 1 }
-load(data, { ivarToString: "" }); // => RubyObject { "a": 1 }
-load(data, { ivarToString: "_" }); // => RubyObject { "_a": 1 }
+load(data, { convertInstanceVarsToString: true }); // => RubyObject { "@a": 1 }
+load(data, { convertInstanceVarsToString: "" }); // => RubyObject { "a": 1 }
+load(data, { convertInstanceVarsToString: "_" }); // => RubyObject { "_a": 1 }
 ```
 
-### options.known: `{ class }`
+### options.decodeKnown: `{ class }`
 
 Decode Ruby objects as same-class JavaScript objects.
 
@@ -149,7 +152,7 @@ data = Marshal.dump(A.new)
 ```js
 class A {}
 load(data); // => RubyObject { class: Symbol(A) }
-load(data, { known: { A } }); // => A {}
+load(data, { decodeKnown: { A } }); // => A {}
 ```
 
 ## dump(value, options?)
@@ -158,34 +161,42 @@ Encode a JavaScript value into Ruby marshal data. Returns a `Uint8Array`.
 Note that the `Uint8Array` may not always be the same length as its underlying buffer.
 You should always check the `byteOffset` and `byteLength` when accessing the buffer.
 
-- `value` {unknown} The JavaScript value.
-- `options` {Object} Encode options.
+-   `value` {unknown} The JavaScript value.
+-   `options` {Object} Encode options.
 
-### options.hashStringKeysToSymbol: `true`
+### options.convertStringsToInstanceVar: `true` \| `string`
 
-Convert string keys in hash to symbol.
+If set, reverses previously converted instance variables back to their initial form.
+Specify the same value you specified in `convertInstanceVarsToString` in load().
 
 ```js
-dump({ a: 1 }); // => ruby: { "a" => 1 }
-dump({ a: 1 }, { hashStringKeysToSymbol: true }); // => ruby: { :a => 1 }
+let object = { "@a": 1 };
+dump(data); // => RubyObject { "@a": 1 }
+dump(data, { convertStringsToInstanceVar: true }); // => RubyObject { Symbol(@a): 1 }
+
+object = { a: 1 };
+dump(data, { convertStringsToInstanceVar: "" }); // => RubyObject { Symbol(@a): 1 }
+
+object = { _a: 1 };
+dump(data, { convertStringsToInstanceVar: "_" }); // => RubyObject { Symbol(@a): 1 }
 ```
 
-### options.known: `{ class }`
+### options.encodeKnown: `{ class }`
 
 Encode JavaScript objects into same-name Ruby objects.
 
 ```js
 class A {}
 dump(new A()); // Error: can't dump object [object Object]
-dump(new A(), { known: { A } }); // => ruby: #<A>
+dump(new A(), { encodeKnown: { A } }); // => ruby: #<A>
 ```
 
-### options.unknown: `(obj) => string`
+### options.encodeUnknown: `(obj) => string`
 
-This is an alter to the error case of `options.known`.
-It should returns a string indicating the Ruby class name to encode into.
+This is an alter to the error case of `options.encodeKnown`.
+It should return a string indicating the Ruby class name to encode into.
 If you return `null` or empty string, it fallbacks to throw the error.
 
 ```js
-dump(new A(), { unknown: a => a.constructor?.name }); // => ruby: #<A>
+dump(new A(), { encodeUnknown: (a) => a.constructor?.name }); // => ruby: #<A>
 ```

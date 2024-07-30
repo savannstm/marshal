@@ -1,2 +1,2 @@
-- [API Reference](./api.md)
-- [FAQ](./faq.md)
+-   [API Reference](./api.md)
+-   [FAQ](./faq.md)

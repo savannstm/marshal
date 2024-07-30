@@ -1,21 +1,18 @@
 # @hyrious/marshal
 
-![version](https://img.shields.io/npm/v/%40hyrious/marshal)
-![npm package size](https://img.shields.io/bundlephobia/min/%40hyrious/marshal)
-![downloads](https://img.shields.io/npm/dw/%40hyrious/marshal)
-
-Ruby marshal for the browser and Node.js.
+TypeScript implementation of Ruby Marshal, that can be used both in browser and in Node.js.
+This project is a fork of [@hyrious/marshal](https://github.com/hyrious/marshal), rewritten according to ES6 standards and adding some additional features.
 
 ## Install
 
 ```
-npm add @hyrious/marshal
+npm i @savannstm/marshal
 ```
 
 ## Usage
 
 ```ts
-import { dump, load } from "@hyrious/marshal";
+import { dump, load } from "@savannstm/marshal";
 dump(null); // Uint8Array(3) [ 4, 8, 48 ]
 load("\x04\b0"); // null
 
@@ -80,35 +77,32 @@ However, it is still possible to read all flags by wrapper class, see [options.r
 
 #### Hash
 
-This library decodes Hash as plain object by default, string/symbol/number
-keys are always decoded as JS object props, which means unusual keys like
-an object are ignored. However, it is still possible to keep these keys
-using `Map` or wrapper classes, see [options.hash](./docs/api.md#optionshash-map--wrap).
+This library decodes Hash as plain object by default, string/symbol/number keys are always decoded as JS object props, which means unusual keys like an object are ignored.
+However, it is still possible to keep these keys using `Map` or wrapper classes, see [options.hash](./docs/api.md#optionshash-map--wrap).
 
 #### Instance Variables
 
 This library decodes instance variables (often `@a = 1`) as object props, i.e. `obj[Symbol(@a)] = 1`.
 It is guaranteed that you can retrieve these properties using `Object.getOwnPropertySymbols()`.
-It is possible to convert these symbols to strings, see [options.ivarToString](./docs/api.md#optionsivartostring-true--string).
+It is possible to convert these symbols to strings when loading, see [options.convertInstanceVarsToString](./docs/api.md#optionsconvertinstancevarstostring-true--string), and strings to symbols when dumping, see [options.convertStringsToInstanceVar](./docs/api.md#optionsconvertstringstoinstancevar-true--string).
 
 ### [API Reference](./docs/api.md)
 
 ### [FAQ](./docs/faq.md)
 
-### [ChangeLog](./CHANGELOG.md)
+### [Changelog](./CHANGELOG.md)
 
-### Develop
+### Developing
 
-- Run `npm t` to run tests.
-- Run `npm t clone` to only run `clone.ts`.
+-   Run `npm run test` to run tests.
 
 ### Reference
 
-- [marshal.c](https://github.com/ruby/ruby/blob/master/marshal.c)
-- [Marshal Format](https://github.com/ruby/ruby/blob/master/doc/marshal.rdoc) (official doc)
-- [node marshal](https://github.com/clayzermk1/node-marshal)
-- [@qnighy/marshal](https://github.com/qnighy/marshal-js)
-- A [little](http://jakegoulding.com/blog/2013/01/15/a-little-dip-into-rubys-marshal-format)/[another](http://jakegoulding.com/blog/2013/01/16/another-dip-into-rubys-marshal-format)/[final](http://jakegoulding.com/blog/2013/01/20/a-final-dip-into-rubys-marshal-format) dip into Ruby's Marshal format
+-   [marshal.c](https://github.com/ruby/ruby/blob/master/marshal.c)
+-   [Marshal Format](https://github.com/ruby/ruby/blob/master/doc/marshal.rdoc) (official doc)
+-   [node marshal](https://github.com/clayzermk1/node-marshal)
+-   [@qnighy/marshal](https://github.com/qnighy/marshal-js)
+-   A [little](http://jakegoulding.com/blog/2013/01/15/a-little-dip-into-rubys-marshal-format)/[another](http://jakegoulding.com/blog/2013/01/16/another-dip-into-rubys-marshal-format)/[final](http://jakegoulding.com/blog/2013/01/20/a-final-dip-into-rubys-marshal-format) dip into Ruby's Marshal format
 
 ## License
 

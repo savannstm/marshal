@@ -1,6 +1,8 @@
 {
-  "tabWidth": 2,
-  "endOfLine": "auto",
-  "arrowParens": "avoid",
-  "printWidth": 110
+    "endOfLine": "lf",
+    "semi": true,
+    "singleQuote": false,
+    "useTabs": false,
+    "tabWidth": 4,
+    "printWidth": 120
 }

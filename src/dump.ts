@@ -1,386 +1,544 @@
-import isPlainObject from "is-plain-obj";
-
-import * as constants from "./constants";
-import { encode, symKeys } from "./internal";
+import { Constants, defaultString, encodingShortSymbol, extendsString } from "./constants";
 import {
-  RubyClass,
-  RubyFloat,
-  RubyHash,
-  RubyInteger,
-  RubyModule,
-  RubyObject,
-  RubyRegexp,
-  RubyStruct,
-} from "./ruby";
-import type { ClassLike } from "./load";
+    RubyClass,
+    RubyFloat,
+    RubyHash,
+    RubyInteger,
+    RubyModule,
+    RubyObject,
+    RubyRegexp,
+    RubyStruct,
+} from "./ruby-classes";
+import { DumpOptions } from "./options";
 
-export interface DumpOptions {
-  /**
-   * If true, convert string keys in JS objects to ruby symbols in Hash.
-   * ```js
-   * dump({ a: 1 }) // => ruby: { "a" => 1 }
-   * dump({ a: 1 }, { hashStringKeysToSymbol: true }) // => ruby: { :a => 1 }
-   * ```
-   */
-  hashStringKeysToSymbol?: boolean;
-
-  /**
-   * If set, use this known classes to encode ruby objects.
-   * ```js
-   * dump(new A()) // => Error "can't dump object [object Object]"
-   * dump(new A(), { known: { A } }) // => ruby: #<A>
-   * ```
-   */
-  known?: { [klass: string]: ClassLike };
-
-  /**
-   * If set, use this string for unknown classes to encode ruby objects.
-   * ```js
-   * dump(new A()) // => Error "can't dump object [object Object]"
-   * dump(new A(), { unknown: () => "A" }) // => ruby: #<A>
-   * ```
-   */
-  unknown?: (obj: unknown) => string | null | undefined;
-}
+const encoder = new TextEncoder();
+const encode = (string: string) => encoder.encode(string);
 
 class Dumper {
-  declare data_: Uint8Array;
-  declare length_: number;
-  declare objects_: Map<any, number>;
-  declare symbols_: Map<symbol, number>;
-  declare options_: DumpOptions;
+    private data: Uint8Array;
+    private length: number;
+    private objectMap: Map<unknown, number>;
+    private symbolsMap: Map<symbol, number>;
+    private readonly options: DumpOptions;
 
-  constructor(options: DumpOptions = {}) {
-    this.data_ = new Uint8Array(16);
-    this.length_ = 0;
-    this.objects_ = new Map();
-    this.symbols_ = new Map();
-    this.options_ = options;
-  }
+    constructor(options: DumpOptions = {}) {
+        this.data = new Uint8Array(16);
+        this.length = 0;
+        this.objectMap = new Map();
+        this.symbolsMap = new Map();
+        this.options = options;
+    }
 
-  dump_(value: unknown) {
-    w_byte(this, 4);
-    w_byte(this, 8);
-    w_object(this, value);
-    this.objects_.clear();
-    this.symbols_.clear();
-    return this;
-  }
+    public dump(value: unknown) {
+        this.writeByte(4);
+        this.writeByte(8);
+        this.writeObject(value);
 
-  get_() {
-    return this.data_.subarray(0, this.length_);
-  }
+        this.objectMap.clear();
+        this.symbolsMap.clear();
+
+        return this;
+    }
+
+    public get() {
+        return this.data.subarray(0, this.length);
+    }
+
+    private isPlainObject(object: unknown) {
+        if (typeof object !== "object" || object === null) {
+            return false;
+        }
+
+        const prototype = Object.getPrototypeOf(object);
+        return prototype === Object.prototype || prototype === null;
+    }
+
+    private convertKeysToSymbols(obj: unknown, convertStringToSymbol?: boolean | string) {
+        if (obj && typeof obj === "object") {
+            for (const key in obj) {
+                // Helper properties of objects, that shouldn't be converted
+                if (
+                    key === "data" ||
+                    key === "wrapped" ||
+                    key === "userDefined" ||
+                    key === "userMarshal" ||
+                    key === "classSymbol"
+                ) {
+                    continue;
+                }
+
+                // @ts-expect-error object can be indexed by string
+                const value = obj[key];
+
+                const symbolKey =
+                    typeof convertStringToSymbol === "string"
+                        ? Symbol.for("@" + key.slice(convertStringToSymbol.length))
+                        : Symbol.for(key);
+
+                // @ts-expect-error object can be indexed by symbol
+                obj[symbolKey] = value;
+
+                // @ts-expect-error object can be indexed by string
+                // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                delete obj[key];
+            }
+        }
+
+        return obj;
+    }
+
+    private resizeDumperData() {
+        const data = new Uint8Array(this.data.byteLength << 1);
+
+        data.set(this.data);
+
+        this.data = data;
+    }
+
+    private writeByte(number: number) {
+        if (this.length >= this.data.byteLength) {
+            this.resizeDumperData();
+        }
+
+        this.data[this.length++] = number;
+    }
+
+    private writeBuffer(array: ArrayLike<number>) {
+        while (this.length + array.length >= this.data.byteLength) {
+            this.resizeDumperData();
+        }
+
+        this.data.set(array, this.length);
+        this.length += array.length;
+    }
+
+    private writeBytes(array: ArrayLike<number>) {
+        this.writeLong(array.length);
+        this.writeBuffer(array);
+    }
+
+    private writeString(string: string) {
+        this.writeBytes(encode(string));
+    }
+
+    private writeLong(number: number) {
+        const buffer = new Uint8Array(5);
+        const index = this.writeMarshalLong(number, buffer);
+
+        this.writeBuffer(buffer.subarray(0, index));
+    }
+
+    private writeMarshalLong(long: number, buffer: Uint8Array) {
+        if (long === 0) {
+            buffer[0] = 0;
+            return 1;
+        }
+
+        if (0 < long && long < 123) {
+            buffer[0] = long + 5;
+            return 1;
+        }
+
+        if (-124 < long && long < 0) {
+            buffer[0] = (long - 5) & 0xff;
+            return 1;
+        }
+
+        let i: number;
+
+        for (i = 1; i < 5; i++) {
+            buffer[i] = long & 0xff;
+            long >>= 8;
+            if (long === 0) {
+                buffer[0] = i;
+                break;
+            }
+            if (long === -1) {
+                buffer[0] = -i;
+                break;
+            }
+        }
+
+        return i + 1;
+    }
+
+    private writeFloat(float: number) {
+        let floatString;
+
+        switch (true) {
+            case Number.isNaN(float):
+                floatString = "nan";
+                break;
+            case float === Infinity:
+                floatString = "inf";
+                break;
+            case float === -Infinity:
+                floatString = "-inf";
+                break;
+            case Object.is(float, -0):
+                floatString = "-0";
+                break;
+            default:
+                floatString = float.toString();
+        }
+
+        this.writeString(floatString);
+    }
+
+    private writeSymbol(symbol: symbol) {
+        if (this.symbolsMap.has(symbol)) {
+            this.writeByte(Constants.Symlink);
+            this.writeLong(this.symbolsMap.get(symbol) as number);
+        } else {
+            this.writeByte(Constants.Symbol);
+            this.writeBytes(encode(Symbol.keyFor(symbol) as string));
+            this.symbolsMap.set(symbol, this.symbolsMap.size);
+        }
+    }
+
+    private writeExtended(extended: symbol[]) {
+        for (const symbol of extended) {
+            this.writeByte(Constants.Extended);
+            this.writeSymbol(symbol);
+        }
+    }
+
+    private writeClass(type: number, object: RubyObject | RubyStruct) {
+        // @ts-expect-error object can be indexed by string
+        if (object[extendsString]) {
+            // @ts-expect-error object can be indexed by string
+            this.writeExtended(object[extendsString]);
+        }
+
+        this.writeByte(type);
+        this.writeSymbol(object.classSymbol);
+    }
+
+    private writeUserClass(object: RubyObject) {
+        // @ts-expect-error object can be indexed by string
+        if (object[extendsString]) {
+            // @ts-expect-error object can be indexed by string
+            this.writeExtended(object[extendsString]);
+        }
+
+        if (object.wrapped) {
+            this.writeByte(Constants.UserClass);
+            this.writeSymbol(object.classSymbol);
+        }
+    }
+
+    private writeInstanceVar(object: object, stringToInstanceVar?: boolean | string) {
+        if (stringToInstanceVar) {
+            this.convertKeysToSymbols(object, stringToInstanceVar);
+        }
+
+        const symbols = Object.getOwnPropertySymbols(object);
+        const number = symbols.length;
+
+        if (number > 0) {
+            this.writeLong(number);
+
+            for (const symbol of symbols) {
+                this.writeSymbol(symbol);
+                // @ts-expect-error object can be indexed by symbol
+                this.writeObject(object[symbol]);
+            }
+        } else {
+            this.writeLong(0);
+        }
+    }
+
+    private writeBigNum(absolute: number) {
+        this.writeByte(Constants.BigNum);
+        this.writeByte(absolute < 0 ? Constants.Negative : Constants.Positive);
+
+        const buffer: number[] = [];
+        absolute = Math.abs(absolute);
+
+        do {
+            buffer.push(absolute & 0xff);
+            absolute = Math.floor(absolute / 256);
+        } while (absolute);
+
+        if (buffer.length & 1) {
+            buffer.push(0);
+        }
+
+        this.writeLong(buffer.length >> 1);
+        this.writeBuffer(buffer);
+    }
+
+    private writeRemember(object: unknown) {
+        if (!this.objectMap.has(object)) {
+            this.objectMap.set(object, this.objectMap.size);
+        }
+    }
+
+    private writeKnown(object: object, classString: string, stringToInstanceVar?: boolean | string) {
+        this.writeRemember(object);
+
+        // @ts-expect-error object can be indexed by string
+        if (object[extendsString]) {
+            // @ts-expect-error object can be indexed by string
+            this.writeExtended(object[extendsString]);
+        }
+
+        this.writeByte(Constants.Object);
+        this.writeSymbol(Symbol.for(classString));
+        this.writeInstanceVar(object, stringToInstanceVar);
+    }
+
+    private writeObject(object: unknown) {
+        const known = this.options.encodeKnown || {};
+        const unknownClassEncoding = this.options.encodeUnknown;
+        const stringToInstanceVar = this.options.convertStringsToInstanceVar;
+
+        switch (true) {
+            case object === undefined:
+                throw new TypeError("Type 'undefined' cannot be dumped.");
+            case object === null:
+                this.writeByte(Constants.Nil);
+                break;
+            case object === true:
+                this.writeByte(Constants.True);
+                break;
+            case object === false:
+                this.writeByte(Constants.False);
+                break;
+            case typeof object === "number":
+                if (Number.isInteger(object)) {
+                    if (-0x40000000 <= object && object < 0x40000000) {
+                        this.writeByte(Constants.FixNum);
+                        this.writeLong(object);
+                    } else {
+                        this.writeRemember(object);
+                        this.writeBigNum(object);
+                    }
+                } else {
+                    this.writeRemember(object);
+                    this.writeByte(Constants.Float);
+                    this.writeFloat(object);
+                }
+                break;
+            case object instanceof RubyInteger: {
+                const index = object.value;
+
+                if (-0x40000000 <= index && index < 0x40000000) {
+                    this.writeByte(Constants.FixNum);
+                    this.writeLong(index);
+                } else {
+                    this.writeRemember(index);
+                    this.writeBigNum(index);
+                }
+                break;
+            }
+            case object instanceof RubyFloat: {
+                const index = object.value;
+                this.writeRemember(index);
+                this.writeByte(Constants.Float);
+                this.writeFloat(index);
+                break;
+            }
+            case typeof object === "symbol":
+                this.writeSymbol(object as symbol);
+                break;
+            case this.objectMap.has(object):
+                this.writeByte(Constants.Link);
+                this.writeLong(this.objectMap.get(object) as number);
+                break;
+            case object instanceof RubyObject: {
+                this.writeRemember(object);
+
+                if (object.data !== undefined) {
+                    this.writeClass(Constants.Data, object);
+                    this.writeObject(object.data);
+                } else if (object.wrapped !== undefined) {
+                    this.writeUserClass(object);
+                    this.writeObject(object.wrapped);
+                } else if (object.userDefined) {
+                    const keys = stringToInstanceVar ? Object.keys(object) : null;
+                    const hasInstanceVar = stringToInstanceVar
+                        ? (keys as string[]).length > 0
+                        : Object.getOwnPropertySymbols(object).length > 0;
+
+                    if (hasInstanceVar) {
+                        this.writeByte(Constants.InstanceVar);
+                    }
+
+                    this.writeClass(Constants.UserDef, object);
+                    this.writeBytes(object.userDefined);
+
+                    if (hasInstanceVar) {
+                        if (stringToInstanceVar) {
+                            this.convertKeysToSymbols(object, stringToInstanceVar);
+                        }
+
+                        this.writeInstanceVar(object, stringToInstanceVar);
+                    }
+                } else if (object.userMarshal !== undefined) {
+                    this.writeClass(Constants.UserMarshal, object);
+                    this.writeObject(object.userMarshal);
+                } else {
+                    this.writeClass(Constants.Object, object);
+                    this.writeInstanceVar(object, stringToInstanceVar);
+                }
+                break;
+            }
+            case object instanceof RubyStruct:
+                this.writeRemember(object);
+                this.writeClass(Constants.Struct, object);
+                this.writeInstanceVar(object.members as Record<symbol, unknown>, stringToInstanceVar);
+                break;
+            case Array.isArray(object):
+                this.writeRemember(object);
+                this.writeByte(Constants.Array);
+                this.writeLong(object.length);
+
+                for (const element of object) {
+                    this.writeObject(element);
+                }
+                break;
+            case object instanceof RegExp: {
+                this.writeRemember(object);
+                this.writeByte(Constants.RegExp);
+                this.writeString(object.source);
+                let options = 0;
+
+                if (object.flags.includes("i")) {
+                    options |= Constants.RegExpIgnoreCase;
+                }
+
+                if (object.flags.includes("m")) {
+                    options |= Constants.RegExpMultiline;
+                }
+
+                this.writeByte(options);
+                break;
+            }
+            case object instanceof RubyRegexp:
+                this.writeRemember(object);
+                this.writeByte(Constants.RegExp);
+                this.writeString(object.source);
+                this.writeByte(object.options);
+                break;
+            case typeof object === "string":
+                this.writeByte(Constants.InstanceVar);
+                this.writeByte(Constants.String);
+                this.writeString(object);
+                this.writeLong(1);
+                this.writeSymbol(encodingShortSymbol);
+                this.writeByte(Constants.True);
+                break;
+            case object instanceof Uint8Array:
+                this.writeRemember(object);
+                this.writeByte(Constants.String);
+                this.writeBytes(object);
+                break;
+            case object instanceof RubyClass:
+                this.writeRemember(object);
+                this.writeByte(Constants.Class);
+                this.writeString(object.name);
+                break;
+            case object instanceof RubyModule:
+                this.writeRemember(object);
+                this.writeByte(object.old ? Constants.ModuleOld : Constants.Module);
+                this.writeString(object.name);
+                break;
+            case object instanceof RubyHash: {
+                this.writeRemember(object);
+
+                const defaultValue = object.default;
+                this.writeByte(defaultValue === undefined ? Constants.Hash : Constants.HashDef);
+                this.writeLong(object.entries.length);
+
+                const number = object.entries.length;
+                for (let i = 0; i < number; ++i) {
+                    const [key, value] = object.entries[i];
+                    this.writeObject(key);
+                    this.writeObject(value);
+                }
+
+                if (defaultValue !== undefined) {
+                    this.writeObject(defaultValue);
+                }
+                break;
+            }
+            case object instanceof Map: {
+                this.writeRemember(object);
+
+                // @ts-expect-error object can be indexed by string
+                const defaultValue = object[defaultString] as unknown;
+                this.writeByte(defaultValue === undefined ? Constants.Hash : Constants.HashDef);
+                this.writeLong(object.size);
+
+                for (const [key, value] of object) {
+                    this.writeObject(key);
+                    this.writeObject(value);
+                }
+
+                if (defaultValue !== undefined) {
+                    this.writeObject(defaultValue);
+                }
+                break;
+            }
+            case this.isPlainObject(object): {
+                this.writeRemember(object);
+
+                // @ts-expect-error object can be indexed by string
+                const defaultValue = object[defaultString];
+                this.writeByte(defaultValue === undefined ? Constants.Hash : Constants.HashDef);
+
+                const keys = (Object.keys(object) as (string | symbol)[]).concat(Object.getOwnPropertySymbols(object));
+                this.writeLong(keys.length);
+
+                const number = keys.length;
+
+                for (let i = 0; i < number; ++i) {
+                    const key = keys[i];
+                    let actualKey: null | number | symbol = null;
+
+                    if (typeof key === "string") {
+                        if (key.startsWith(":SYMBOL:")) {
+                            actualKey = Symbol.for(key.slice(8));
+                        } else if (key.startsWith("iINTEGERi")) {
+                            actualKey = Number.parseInt(key.slice(9));
+                        }
+                    }
+
+                    this.writeObject(actualKey ? actualKey : key);
+                    // @ts-expect-error object can be indexed by string
+                    this.writeObject(object[key]);
+                }
+
+                if (defaultValue !== undefined) {
+                    this.writeObject(defaultValue);
+                }
+                break;
+            }
+            default: {
+                const prototype = Object.getPrototypeOf(object);
+
+                for (const classString in known) {
+                    if (prototype === known[classString].prototype) {
+                        this.writeKnown(object, classString, stringToInstanceVar);
+                        return;
+                    }
+                }
+
+                if (unknownClassEncoding) {
+                    const symbol = unknownClassEncoding(object);
+
+                    if (symbol) {
+                        this.writeKnown(object, symbol, stringToInstanceVar);
+                        return;
+                    }
+                }
+
+                throw new TypeError(`Cannot dump type ${typeof object} of object ${object}.`);
+            }
+        }
+    }
 }
-
-const resize = (d: Dumper) => {
-  var data = new Uint8Array(d.data_.byteLength << 1);
-  data.set(d.data_);
-  d.data_ = data;
-};
-
-const w_byte = (d: Dumper, b: number) => {
-  if (d.length_ >= d.data_.byteLength) resize(d);
-  d.data_[d.length_++] = b;
-};
-
-const w_buffer = (d: Dumper, arr: ArrayLike<number>) => {
-  while (d.length_ + arr.length >= d.data_.byteLength) resize(d);
-  d.data_.set(arr, d.length_);
-  d.length_ += arr.length;
-};
-
-const w_bytes = (d: Dumper, arr: ArrayLike<number>) => {
-  w_long(d, arr.length);
-  w_buffer(d, arr);
-};
-
-const w_string = (d: Dumper, s: string) => {
-  w_bytes(d, encode(s));
-};
-
-const w_long = (d: Dumper, n: number) => {
-  var buf = new Uint8Array(5);
-  var i = ruby_marshal_write_long(n, buf);
-  w_buffer(d, buf.subarray(0, i));
-};
-
-const ruby_marshal_write_long = (x: number, buf: Uint8Array) => {
-  if (x === 0) {
-    buf[0] = 0;
-    return 1;
-  }
-  if (0 < x && x < 123) {
-    buf[0] = x + 5;
-    return 1;
-  }
-  if (-124 < x && x < 0) {
-    buf[0] = (x - 5) & 0xff;
-    return 1;
-  }
-  for (var i = 1; i < 5; ++i) {
-    buf[i] = x & 0xff;
-    x >>= 8;
-    if (x === 0) {
-      buf[0] = i;
-      break;
-    }
-    if (x === -1) {
-      buf[0] = -i;
-      break;
-    }
-  }
-  return i + 1;
-};
-
-// prettier-ignore
-const w_float = (d: Dumper, f: number) => {
-  w_string(
-    d,
-    f !== f
-      ? "nan"
-      : Number.isFinite(f)
-        ? (Object.is(f, -0) ? "-0" : f.toString())
-        : f < 0 ? "-inf" : "inf"
-  );
-};
-
-const w_symbol = (d: Dumper, sym: symbol) => {
-  if (d.symbols_.has(sym)) {
-    w_byte(d, constants.T_SYMLINK);
-    w_long(d, d.symbols_.get(sym)!);
-  } else {
-    w_byte(d, constants.T_SYMBOL);
-    w_bytes(d, encode(Symbol.keyFor(sym)!));
-    d.symbols_.set(sym, d.symbols_.size);
-  }
-};
-
-const w_extended = (d: Dumper, e: symbol[]) => {
-  for (var sym of e) {
-    w_byte(d, constants.T_EXTENDED);
-    w_symbol(d, sym);
-  }
-};
-
-const w_class = (d: Dumper, type: number, a: RubyObject | RubyStruct) => {
-  if (a[constants.S_EXTENDS]) w_extended(d, a[constants.S_EXTENDS]);
-  w_byte(d, type);
-  w_symbol(d, a.class);
-};
-
-const w_uclass = (d: Dumper, a: RubyObject) => {
-  if (a[constants.S_EXTENDS]) w_extended(d, a[constants.S_EXTENDS]);
-  if (a.wrapped) {
-    w_byte(d, constants.T_UCLASS);
-    w_symbol(d, a.class);
-  }
-};
-
-// also used for struct.members, both printing sym keys
-const w_ivar = (d: Dumper, a: {}) => {
-  // prettier-ignore
-  var keys = symKeys(a), n = keys.length, i, k;
-  if (n > 0) {
-    w_long(d, n);
-    for (i = 0; i < n; ++i) {
-      w_symbol(d, (k = keys[i]));
-      w_object(d, a[k]);
-    }
-  } else {
-    w_long(d, 0);
-  }
-};
-
-const w_bignum = (d: Dumper, a: number) => {
-  w_byte(d, constants.T_BIGNUM);
-  w_byte(d, a < 0 ? constants.B_NEGATIVE : constants.B_POSITIVE);
-  var buffer: number[] = [];
-  a = Math.abs(a);
-  do {
-    buffer.push(a & 0xff);
-    a = Math.floor(a / 256);
-  } while (a);
-  if (buffer.length & 1) buffer.push(0);
-  w_long(d, buffer.length >> 1);
-  w_buffer(d, buffer);
-};
-
-const w_remember = (d: Dumper, obj: unknown) => {
-  if (!d.objects_.has(obj)) {
-    d.objects_.set(obj, d.objects_.size);
-  }
-};
-
-const w_known = (d: Dumper, obj: {}, klass: string) => {
-  w_remember(d, obj);
-  if (obj[constants.S_EXTENDS]) w_extended(d, obj[constants.S_EXTENDS]);
-  w_byte(d, constants.T_OBJECT);
-  w_symbol(d, Symbol.for(klass));
-  w_ivar(d, obj);
-};
-
-const w_object = (d: Dumper, obj: unknown) => {
-  var str2sym = d.options_.hashStringKeysToSymbol;
-  var known = d.options_.known || {};
-  var unknown = d.options_.unknown;
-
-  if (obj === void 0) {
-    throw new TypeError("can't dump undefined");
-  } else if (obj === null) {
-    w_byte(d, constants.T_NIL);
-  } else if (obj === true) {
-    w_byte(d, constants.T_TRUE);
-  } else if (obj === false) {
-    w_byte(d, constants.T_FALSE);
-  } else if (typeof obj === "number") {
-    if (Number.isInteger(obj)) {
-      if (-0x40000000 <= obj && obj < 0x40000000) {
-        w_byte(d, constants.T_FIXNUM);
-        w_long(d, obj);
-      } else {
-        w_remember(d, obj);
-        w_bignum(d, obj);
-      }
-    } else {
-      w_remember(d, obj);
-      w_byte(d, constants.T_FLOAT);
-      w_float(d, obj);
-    }
-  } else if (obj instanceof RubyInteger) {
-    var i = obj.value;
-    if (-0x40000000 <= i && i < 0x40000000) {
-      w_byte(d, constants.T_FIXNUM);
-      w_long(d, i);
-    } else {
-      w_remember(d, i);
-      w_bignum(d, i);
-    }
-  } else if (obj instanceof RubyFloat) {
-    var i = obj.value;
-    w_remember(d, i);
-    w_byte(d, constants.T_FLOAT);
-    w_float(d, i);
-  } else if (typeof obj === "symbol") {
-    w_symbol(d, obj);
-  } else if (d.objects_.has(obj)) {
-    w_byte(d, constants.T_LINK);
-    w_long(d, d.objects_.get(obj)!);
-  } else if (obj instanceof RubyObject) {
-    w_remember(d, obj);
-    if (obj.data !== void 0) {
-      w_class(d, constants.T_DATA, obj);
-      w_object(d, obj.data);
-    } else if (obj.wrapped !== void 0) {
-      w_uclass(d, obj);
-      w_object(d, obj.wrapped);
-    } else if (obj.userDefined) {
-      var has_ivar = symKeys(obj).length > 0;
-      if (has_ivar) w_byte(d, constants.T_IVAR);
-      w_class(d, constants.T_USERDEF, obj);
-      w_bytes(d, obj.userDefined);
-      if (has_ivar) w_ivar(d, obj);
-    } else if (obj.userMarshal !== void 0) {
-      w_class(d, constants.T_USERMARSHAL, obj);
-      w_object(d, obj.userMarshal);
-    } else {
-      w_class(d, constants.T_OBJECT, obj);
-      w_ivar(d, obj);
-    }
-  } else if (obj instanceof RubyStruct) {
-    w_remember(d, obj);
-    w_class(d, constants.T_STRUCT, obj);
-    w_ivar(d, obj.members);
-  } else if (Array.isArray(obj)) {
-    w_remember(d, obj);
-    w_byte(d, constants.T_ARRAY);
-    w_long(d, obj.length);
-    for (var i = 0; i < obj.length; ++i) {
-      w_object(d, obj[i]);
-    }
-  } else if (obj instanceof RegExp) {
-    w_remember(d, obj);
-    w_byte(d, constants.T_REGEXP);
-    w_string(d, obj.source);
-    var options = 0;
-    if (obj.flags.includes("i")) options |= constants.RE_IGNORECASE;
-    if (obj.flags.includes("m")) options |= constants.RE_MULTILINE;
-    w_byte(d, options);
-  } else if (obj instanceof RubyRegexp) {
-    w_remember(d, obj);
-    w_byte(d, constants.T_REGEXP);
-    w_string(d, obj.source);
-    w_byte(d, obj.options);
-  } else if (typeof obj === "string") {
-    w_remember(d, obj);
-    w_byte(d, constants.T_IVAR);
-    w_byte(d, constants.T_STRING);
-    w_string(d, obj);
-    w_long(d, 1);
-    w_symbol(d, constants._E);
-    w_byte(d, constants.T_TRUE);
-  } else if (obj instanceof Uint8Array) {
-    w_remember(d, obj);
-    w_byte(d, constants.T_STRING);
-    w_bytes(d, obj);
-  } else if (obj instanceof RubyClass) {
-    w_remember(d, obj);
-    w_byte(d, constants.T_CLASS);
-    w_string(d, obj.name);
-  } else if (obj instanceof RubyModule) {
-    w_remember(d, obj);
-    w_byte(d, obj.old ? constants.T_MODULE_OLD : constants.T_MODULE);
-    w_string(d, obj.name);
-  } else if (obj instanceof RubyHash) {
-    w_remember(d, obj);
-    var def = obj.default;
-    w_byte(d, def === void 0 ? constants.T_HASH : constants.T_HASH_DEF);
-    w_long(d, obj.entries.length);
-    for (var i = 0, n = obj.entries.length, k, v; i < n; ++i) {
-      [k, v] = obj.entries[i];
-      w_object(d, k);
-      w_object(d, v);
-    }
-    if (def !== void 0) w_object(d, def);
-  } else if (obj instanceof Map) {
-    w_remember(d, obj);
-    var def = obj[constants.S_DEFAULT] as unknown;
-    w_byte(d, def === void 0 ? constants.T_HASH : constants.T_HASH_DEF);
-    w_long(d, obj.size);
-    for (var [k, v] of obj) {
-      w_object(d, k);
-      w_object(d, v);
-    }
-    if (def !== void 0) w_object(d, def);
-  } else if (isPlainObject(obj)) {
-    w_remember(d, obj);
-    var def = obj[constants.S_DEFAULT];
-    w_byte(d, def === void 0 ? constants.T_HASH : constants.T_HASH_DEF);
-    var keys = (Object.keys(obj) as (string | symbol)[]).concat(symKeys(obj));
-    w_long(d, keys.length);
-    for (var i = 0, n = keys.length, k; i < n; ++i) {
-      k = keys[i];
-      w_object(d, str2sym && typeof k === "string" ? Symbol.for(k) : k);
-      w_object(d, obj[k]);
-    }
-    if (def !== void 0) w_object(d, def);
-  } else {
-    var proto = Object.getPrototypeOf(obj);
-    for (var klass in known) {
-      if (proto === known[klass].prototype) {
-        w_known(d, obj, klass);
-        return;
-      }
-    }
-    if (unknown) {
-      var s = unknown(obj);
-      if (s) {
-        w_known(d, obj, s);
-        return;
-      }
-    }
-    throw new TypeError("can't dump " + typeof obj + " " + obj);
-  }
-};
 
 /**
  * Dump a value into marshal buffer.
@@ -389,13 +547,15 @@ const w_object = (d: Dumper, obj: unknown) => {
  * ```
  */
 export function dump(value: unknown, options?: DumpOptions): Uint8Array {
-  return new Dumper(options).dump_(value).get_();
+    return new Dumper(options).dump(value).get();
 }
 
 export function dumpAll(value: unknown[], options?: DumpOptions): Uint8Array {
-  var d = new Dumper(options);
-  for (var i = 0; i < value.length; ++i) {
-    d.dump_(value[i]);
-  }
-  return d.get_();
+    const dumper = new Dumper(options);
+
+    for (const element of value) {
+        dumper.dump(element);
+    }
+
+    return dumper.get();
 }

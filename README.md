@@ -1,4 +1,4 @@
-# @hyrious/marshal
+# @savannstm/marshal
 
 TypeScript implementation of Ruby Marshal, that can be used both in browser and in Node.js.
 This project is a fork of [@hyrious/marshal](https://github.com/hyrious/marshal), rewritten according to ES6 standards and adding some additional features.

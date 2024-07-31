@@ -317,7 +317,7 @@ class Dumper {
                 }
                 break;
             case object instanceof RubyInteger: {
-                const index = object.value;
+                const index = object.number;
 
                 if (-0x40000000 <= index && index < 0x40000000) {
                     this.writeByte(Constants.FixNum);
@@ -329,7 +329,7 @@ class Dumper {
                 break;
             }
             case object instanceof RubyFloat: {
-                const index = object.value;
+                const index = object.number;
                 this.writeRemember(index);
                 this.writeByte(Constants.Float);
                 this.writeFloat(index);
@@ -352,10 +352,9 @@ class Dumper {
                     this.writeUserClass(object);
                     this.writeObject(object.wrapped);
                 } else if (object.userDefined) {
-                    const keys =
-                        convertStringsToInstanceVar || convertStringsToInstanceVar === "" ? Object.keys(object) : null;
+                    const keys = convertStringsToInstanceVar !== undefined ? Object.keys(object) : null;
                     const hasInstanceVar =
-                        convertStringsToInstanceVar || convertStringsToInstanceVar === ""
+                        convertStringsToInstanceVar !== undefined
                             ? (keys as string[]).length > 0
                             : Object.getOwnPropertySymbols(object).length > 0;
 
@@ -367,7 +366,7 @@ class Dumper {
                     this.writeBytes(object.userDefined);
 
                     if (hasInstanceVar) {
-                        if (convertStringsToInstanceVar || convertStringsToInstanceVar === "") {
+                        if (convertStringsToInstanceVar !== undefined) {
                             this.convertKeysToSymbols(object, convertStringsToInstanceVar);
                         }
 

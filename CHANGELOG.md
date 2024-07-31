@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+-   Fixed non-working `convertInstanceVarsToString` options property of `load()` when using string.
+
 ## 0.4.2
 
 -   Fixed improper handling of `convertInstanceVarsToString` options property of `load()` and `convertStringsToInstanceVar` of `dump()`.

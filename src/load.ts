@@ -196,7 +196,7 @@ class Loader {
                 hash[decode(key)] = value;
                 break;
             case key instanceof RubyInteger || key instanceof RubyFloat:
-                hash[key.value] = value;
+                hash[key.number] = value;
                 break;
             case key instanceof RubyObject || typeof key === "object":
                 key = `oOBJECTo${JSON.stringify(key)}`;
@@ -212,10 +212,10 @@ class Loader {
         value: unknown,
         convertInstanceVarsToString?: boolean | string
     ) {
-        if (convertInstanceVarsToString || convertInstanceVarsToString === "") {
+        if (convertInstanceVarsToString !== undefined) {
             const symbolString = Symbol.keyFor(key as symbol) as string;
 
-            if (convertInstanceVarsToString || convertInstanceVarsToString === "") {
+            if (typeof convertInstanceVarsToString === "boolean") {
                 // @ts-expect-error object can be indexed by string
                 object[symbolString] = value;
             } else {

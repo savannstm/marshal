@@ -79,29 +79,20 @@ export class RubyRange extends RubyObject {
 
 export interface RubyNumeric {
     readonly isInteger: boolean;
-    get number(): number;
 }
 
 export class RubyInteger implements RubyNumeric {
     readonly isInteger: true;
 
-    constructor(public value: number) {
+    constructor(public number: number) {
         this.isInteger = true;
-    }
-
-    get number(): number {
-        return this.value;
     }
 }
 
 export class RubyFloat implements RubyNumeric {
     readonly isInteger: false;
 
-    constructor(public value: number) {
+    constructor(public number: number) {
         this.isInteger = false;
-    }
-
-    get number(): number {
-        return this.value;
     }
 }

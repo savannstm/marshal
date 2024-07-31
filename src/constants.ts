@@ -1,5 +1,5 @@
-export const encodingShortSymbol = Symbol.for("E");
-export const encodingSymbol = Symbol.for("encoding");
+export const encodingShortSymbol: symbol = Symbol.for("E");
+export const encodingSymbol: symbol = Symbol.for("encoding");
 export const extendsString = "__ruby_extends__";
 export const defaultString = "__ruby_default__";
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+-   Hugely improved stringifying load()ed objects potential: For example, instead of parsing object's class as a symbol, it parses class as a string of .\_\_class object property.
+-   Added property .\_\_type to some Ruby objects to determine their type when they're stringified and then parsed back.
+-   Renamed properties of Ruby objects:
+
+    -   `data` to `__data`
+    -   `wrapped` to `__wrapped`
+    -   `userDefined` to `__userDefined`
+    -   `userMarshal` to `__userMarshal`
+    -   `classSymbol` to `__class`
+    -   `members` to `__members`
+    -   `name` to `__name`
+    -   `old` to `__old`
+
+-   Fixed non-working `convertInstanceVarsToString` options property of `dump()` when using empty string.
+
 ## 0.4.4
 
 -   Fixed non-working `convertInstanceVarsToString` options property of `load()` when using string.

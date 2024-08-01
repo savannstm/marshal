@@ -65,7 +65,7 @@ class Loader {
 
         this.pos += 2;
 
-        const value = this.readNext();
+        const value = this.readNext() as object;
         this.symbols.length = 0;
         this.objects.length = 0;
 
@@ -279,7 +279,6 @@ class Loader {
 
                         this.objects[this.objects.length - 1] = object;
                     }
-
                     // Otherwise try to put the ivar
                     else if (object != null) {
                         // Primitive types (boolean, number, string, symbol, ...) cannot hold properties,
@@ -389,9 +388,10 @@ class Loader {
             }
             case Constants.Object: {
                 const classSymbol = this.readNext() as symbol;
-                const classLike = decodeKnown[Symbol.keyFor(classSymbol) as string];
+                const classString = Symbol.keyFor(classSymbol) as string;
+                const classLike = decodeKnown[classString];
                 const object: RubyObject = this.pushObject(
-                    classLike ? Object.create(classLike.prototype) : new RubyObject(classSymbol)
+                    classLike ? Object.create(classLike.prototype) : new RubyObject(classString)
                 );
                 const number = this.readFixNum();
 
@@ -411,7 +411,7 @@ class Loader {
             case Constants.String:
                 return this.pushObject(string === "utf8" ? this.readString() : this.readChunk());
             case Constants.Struct: {
-                const symbol = this.pushObject(new RubyStruct(this.readNext() as symbol));
+                const symbol = this.pushObject(new RubyStruct(Symbol.keyFor(this.readNext() as symbol) as string));
                 const number = this.readFixNum();
                 const hash: Hash = {};
 
@@ -419,27 +419,29 @@ class Loader {
                     this.setHash(hash, this.readNext(), this.readNext());
                 }
 
-                symbol.members = hash;
+                symbol.__members = hash;
                 return symbol;
             }
             case Constants.Data:
             case Constants.UserClass:
             case Constants.UserDef:
             case Constants.UserMarshal: {
-                const object = this.pushObject(new RubyObject(this.readNext() as symbol));
+                const object = this.pushObject(new RubyObject(Symbol.keyFor(this.readNext() as symbol) as string));
 
                 switch (type) {
                     case Constants.Data:
-                        object.data = this.readNext();
+                        object.__data = this.readNext();
+                        console.log(typeof object.__data);
                         break;
                     case Constants.UserClass:
-                        object.wrapped = this.readNext() as typeof object.wrapped;
+                        object.__wrapped = this.readNext() as typeof object.__wrapped;
+                        console.log(typeof object.__wrapped);
                         break;
                     case Constants.UserDef:
-                        object.userDefined = this.readChunk();
+                        object.__userDefined = this.readChunk();
                         break;
                     case Constants.UserMarshal:
-                        object.userMarshal = this.readNext();
+                        object.__userMarshal = this.readNext();
                         break;
                 }
 

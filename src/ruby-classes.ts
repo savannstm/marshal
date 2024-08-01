@@ -1,44 +1,60 @@
 export type Hash = Record<string | number | symbol, unknown>;
 
 export class RubyBaseObject {
-    declare data?: unknown;
-    declare wrapped?: string | Uint8Array | RegExp | unknown[] | Hash | RubyHash;
-    declare userDefined?: Uint8Array;
-    declare userMarshal?: unknown;
+    declare __type: string;
+    declare __data?: unknown;
+    declare __wrapped?: string | Uint8Array | RegExp | unknown[] | Hash | RubyHash;
+    declare __userDefined?: Uint8Array;
+    declare __userMarshal?: unknown;
 }
 
 export class RubyObject extends RubyBaseObject {
-    declare readonly classSymbol: symbol;
+    declare readonly __class: string;
 
-    constructor(classSymbol: symbol) {
+    constructor(classString: string) {
         super();
-        Object.defineProperty(this, "classSymbol", { value: classSymbol, configurable: true });
+        this.__type = "RubyObject";
+        this.__class = classString;
     }
 }
 
 export class RubyStruct extends RubyBaseObject {
-    declare readonly classSymbol: symbol;
-    declare members?: Record<symbol, unknown>;
+    declare readonly __class: string;
+    declare __members?: Record<symbol, unknown>;
 
-    constructor(classSymbol: symbol, members?: Record<symbol, unknown>) {
+    constructor(classString: string, __members?: Record<symbol, unknown>) {
         super();
-        Object.defineProperty(this, "classSymbol", { value: classSymbol, configurable: true });
+        this.__type = "RubyStruct";
+        this.__class = classString;
 
-        if (members) {
-            this.members = members;
+        if (__members !== undefined) {
+            this.__members = __members;
         }
     }
 }
 
 export class RubyClass extends RubyBaseObject {
-    constructor(public name: string) {
+    declare readonly __name: string;
+
+    constructor(name: string) {
         super();
+        this.__type = "RubyClass";
+        this.__name = name;
     }
 }
 
 export class RubyModule extends RubyBaseObject {
-    constructor(public name: string, public old?: boolean) {
+    declare readonly __name: string;
+    declare readonly __old: boolean;
+
+    constructor(name: string, public old?: boolean) {
         super();
+        this.__type = "RubyModule";
+        this.__name = name;
+
+        if (old !== undefined) {
+            this.__old = old;
+        }
     }
 }
 
@@ -67,7 +83,8 @@ export class RubyHash {
 
 export class RubyRange extends RubyObject {
     constructor(begin: unknown | null, end: unknown | null, exclusive: boolean) {
-        super(Symbol.for("Range"));
+        super("Range");
+        this.__type = "RubyRange";
         // @ts-expect-error can be indexed by symbols
         this[Symbol.for("begin")] = begin;
         // @ts-expect-error can be indexed by symbols
@@ -78,21 +95,26 @@ export class RubyRange extends RubyObject {
 }
 
 export interface RubyNumeric {
+    readonly number: number;
     readonly isInteger: boolean;
 }
 
 export class RubyInteger implements RubyNumeric {
-    readonly isInteger: true;
+    public readonly number: number;
+    public readonly isInteger: true;
 
-    constructor(public number: number) {
+    constructor(number: number) {
+        this.number = number;
         this.isInteger = true;
     }
 }
 
 export class RubyFloat implements RubyNumeric {
-    readonly isInteger: false;
+    public readonly number: number;
+    public readonly isInteger: false;
 
-    constructor(public number: number) {
+    constructor(number: number) {
+        this.number = number;
         this.isInteger = false;
     }
 }

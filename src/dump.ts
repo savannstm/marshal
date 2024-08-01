@@ -58,11 +58,11 @@ class Dumper {
             for (const key in obj) {
                 // Helper properties of objects, that shouldn't be converted
                 if (
-                    key === "data" ||
-                    key === "wrapped" ||
-                    key === "userDefined" ||
-                    key === "userMarshal" ||
-                    key === "classSymbol"
+                    key === "__data" ||
+                    key === "__wrapped" ||
+                    key === "__userDefined" ||
+                    key === "__userMarshal" ||
+                    key === "__class"
                 ) {
                     continue;
                 }
@@ -207,7 +207,8 @@ class Dumper {
         }
 
         this.writeByte(type);
-        this.writeSymbol(object.classSymbol);
+
+        this.writeSymbol(typeof object.__class === "symbol" ? object.__class : (Symbol.for(object.__class) as symbol));
     }
 
     private writeUserClass(object: RubyObject) {
@@ -217,14 +218,16 @@ class Dumper {
             this.writeExtended(object[extendsString]);
         }
 
-        if (object.wrapped) {
+        if (object.__wrapped) {
             this.writeByte(Constants.UserClass);
-            this.writeSymbol(object.classSymbol);
+            this.writeSymbol(
+                typeof object.__class === "symbol" ? object.__class : (Symbol.for(object.__class) as symbol)
+            );
         }
     }
 
     private writeInstanceVar(object: object, stringToInstanceVar?: boolean | string) {
-        if (stringToInstanceVar) {
+        if (stringToInstanceVar !== undefined) {
             this.convertKeysToSymbols(object, stringToInstanceVar);
         }
 
@@ -270,7 +273,7 @@ class Dumper {
         }
     }
 
-    private writeKnown(object: object, classString: string, stringToInstanceVar?: boolean | string) {
+    private writeKnown(object: object, classString: string, convertStringsToInstanceVar?: boolean | string) {
         this.writeRemember(object);
 
         // @ts-expect-error object can be indexed by string
@@ -281,7 +284,7 @@ class Dumper {
 
         this.writeByte(Constants.Object);
         this.writeSymbol(Symbol.for(classString));
-        this.writeInstanceVar(object, stringToInstanceVar);
+        this.writeInstanceVar(object, convertStringsToInstanceVar);
     }
 
     private writeObject(object: unknown) {
@@ -342,49 +345,50 @@ class Dumper {
                 this.writeByte(Constants.Link);
                 this.writeLong(this.objectMap.get(object) as number);
                 break;
+            case (object as Record<string, unknown>).__type === "RubyObject":
             case object instanceof RubyObject: {
                 this.writeRemember(object);
 
-                if (object.data !== undefined) {
-                    this.writeClass(Constants.Data, object);
-                    this.writeObject(object.data);
-                } else if (object.wrapped !== undefined) {
-                    this.writeUserClass(object);
-                    this.writeObject(object.wrapped);
-                } else if (object.userDefined) {
-                    const keys = convertStringsToInstanceVar !== undefined ? Object.keys(object) : null;
-                    const hasInstanceVar =
+                if ((object as RubyObject).__data !== undefined) {
+                    this.writeClass(Constants.Data, object as RubyObject);
+                    this.writeObject((object as RubyObject).__data);
+                } else if ((object as RubyObject).__wrapped !== undefined) {
+                    this.writeUserClass(object as RubyObject);
+                    this.writeObject((object as RubyObject).__wrapped);
+                } else if ((object as RubyObject).__userDefined) {
+                    const keys =
                         convertStringsToInstanceVar !== undefined
-                            ? (keys as string[]).length > 0
-                            : Object.getOwnPropertySymbols(object).length > 0;
+                            ? Object.keys(object)
+                            : Object.getOwnPropertySymbols(object);
+                    const hasInstanceVar = keys.length > 0;
 
                     if (hasInstanceVar) {
                         this.writeByte(Constants.InstanceVar);
                     }
 
-                    this.writeClass(Constants.UserDef, object);
-                    this.writeBytes(object.userDefined);
+                    this.writeClass(Constants.UserDef, object as RubyObject);
+                    this.writeBytes((object as RubyObject).__userDefined as Uint8Array);
 
                     if (hasInstanceVar) {
-                        if (convertStringsToInstanceVar !== undefined) {
-                            this.convertKeysToSymbols(object, convertStringsToInstanceVar);
-                        }
-
                         this.writeInstanceVar(object, convertStringsToInstanceVar);
                     }
-                } else if (object.userMarshal !== undefined) {
-                    this.writeClass(Constants.UserMarshal, object);
-                    this.writeObject(object.userMarshal);
+                } else if ((object as RubyObject).__userMarshal !== undefined) {
+                    this.writeClass(Constants.UserMarshal, object as RubyObject);
+                    this.writeObject((object as RubyObject).__userMarshal);
                 } else {
-                    this.writeClass(Constants.Object, object);
+                    this.writeClass(Constants.Object, object as RubyObject);
                     this.writeInstanceVar(object, convertStringsToInstanceVar);
                 }
                 break;
             }
+            case (object as Record<string, unknown>).__type === "RubyStruct":
             case object instanceof RubyStruct:
                 this.writeRemember(object);
-                this.writeClass(Constants.Struct, object);
-                this.writeInstanceVar(object.members as Record<symbol, unknown>, convertStringsToInstanceVar);
+                this.writeClass(Constants.Struct, object as RubyStruct);
+                this.writeInstanceVar(
+                    (object as RubyStruct).__members as Record<symbol, unknown>,
+                    convertStringsToInstanceVar
+                );
                 break;
             case Array.isArray(object):
                 this.writeRemember(object);
@@ -432,15 +436,17 @@ class Dumper {
                 this.writeByte(Constants.String);
                 this.writeBytes(object);
                 break;
+            case (object as Record<string, unknown>).__type === "RubyClass":
             case object instanceof RubyClass:
                 this.writeRemember(object);
                 this.writeByte(Constants.Class);
-                this.writeString(object.name);
+                this.writeString((object as RubyClass).__name);
                 break;
+            case (object as Record<string, unknown>).__type === "RubyModule":
             case object instanceof RubyModule:
                 this.writeRemember(object);
-                this.writeByte(object.old ? Constants.ModuleOld : Constants.Module);
-                this.writeString(object.name);
+                this.writeByte((object as RubyModule).__old ? Constants.ModuleOld : Constants.Module);
+                this.writeString((object as RubyModule).__name);
                 break;
             case object instanceof RubyHash: {
                 this.writeRemember(object);
@@ -493,6 +499,7 @@ class Dumper {
                 const number = keys.length;
                 for (let i = 0; i < number; ++i) {
                     const key = keys[i];
+
                     let actualKey: null | number | symbol = null;
 
                     if (typeof key === "string") {

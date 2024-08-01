@@ -177,11 +177,11 @@ describe("load", (test) => {
 
         const class_ = await loads(`class A end; A`, { decodeKnown: { A } }); // 'known' has no effect here
         assert.instance(class_, marshal.RubyClass);
-        assert.is((class_ as marshal.RubyClass).name, "A");
+        assert.is((class_ as marshal.RubyClass).__name, "A");
 
         const mod = await loads(`module A end; A`, { decodeKnown: { A } });
         assert.instance(mod, marshal.RubyModule);
-        assert.is((mod as marshal.RubyClass).name, "A");
+        assert.is((mod as marshal.RubyClass).__name, "A");
     });
 
     test("loadAll", async () => {

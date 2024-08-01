@@ -77,7 +77,8 @@ However, it is still possible to read all flags by wrapper class, see [options.r
 
 #### Hash
 
-This library decodes Hash as plain object by default, string/symbol/number keys are always decoded as JS object props, which means unusual keys like an object are ignored.
+This library decodes Hash as plain object by default, and always decodes strings, symbols and numbers as object properties. It converts symbols and numbers to string, but preserves their types by prefixing these strings with ":SYMBOL:" for symbols and "iINTEGERi" for numbers.
+It also tries to convert objects to strings, using JSON.stringify() and prefixing resulting string with "oOBJECTo", but this approach does NOT guarantee that resulting key will be dumped back to it's initial form.
 However, it is still possible to keep these keys using `Map` or wrapper classes, see [options.hash](./docs/api.md#optionshash-map--wrap).
 
 #### Instance Variables
@@ -85,6 +86,61 @@ However, it is still possible to keep these keys using `Map` or wrapper classes,
 This library decodes instance variables (often `@a = 1`) as object props, i.e. `obj[Symbol(@a)] = 1`.
 It is guaranteed that you can retrieve these properties using `Object.getOwnPropertySymbols()`.
 It is possible to convert these symbols to strings when loading, see [options.convertInstanceVarsToString](./docs/api.md#optionsconvertinstancevarstostring-true--string), and strings to symbols when dumping, see [options.convertStringsToInstanceVar](./docs/api.md#optionsconvertstringstoinstancevar-true--string).
+
+#### Stringifying load()ed JSON objects
+
+Implementation of this library allows you to stringify load()ed JSON objects, write them to files, then read them back and dump() to working Ruby Marshal files.
+There's one moment to notice: Library handles almost everything, so you can safely stringify objects and parse them back, except for Uint8Arrays.
+So when you stringify loaded files, you should handle that manually.
+For example:
+
+```js
+import { writeFileSync, readFileSync } from "node:fs";
+import { load } from "@savannstm/marshal";
+
+// Read the Ruby Marshal file data
+const rubyMarshalFileData = readFileSync(path);
+
+// Load the Ruby Marshal file data to JSON object
+const loaded = load(rubyMarshalFileData, {
+    convertHashKeysToString: true,
+    convertInstanceVarsToString: true,
+});
+
+// Stringify and replace Uint8Array structures to something, that can be stringified
+const stringified = JSON.stringify(loaded, (key, value) => {
+    if (value instanceof Uint8Array) {
+        return {
+            __type: "Uint8Array",
+            data: Array.from(value),
+        };
+    }
+
+    return value;
+});
+
+// Write stringified object to file
+await writeFileSync(outputPath, stringified);
+
+// Read stringified object from file
+const stringifiedJSON = await readFileSync(outputPath);
+
+// Revive Uint8Array structures
+const parsed = JSON.parse(stringifiedJSON, (_, value) => {
+    if (value && value.__type === "Uint8Array") {
+        return new Uint8Array(value.data);
+    }
+
+    return value;
+});
+
+// Dump the data back to Ruby Marshal format
+const dumped = dump(parsed, {
+    convertStringsToInstanceVar: true,
+});
+
+// Profit!
+```
 
 ### [API Reference](./docs/api.md)
 

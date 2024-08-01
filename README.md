@@ -96,7 +96,7 @@ For example:
 
 ```js
 import { writeFileSync, readFileSync } from "node:fs";
-import { load } from "@savannstm/marshal";
+import { dump, load } from "@savannstm/marshal";
 
 // Read the Ruby Marshal file data
 const rubyMarshalFileData = readFileSync(path);

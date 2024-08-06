@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+-   Fixed dumping objects' `__type` helper property back to marshal data.
+-   Changed prefixes for objects' keys:
+    -   `:SYMBOL:` changed to `__symbol__`
+    -   `iINTEGERi` changed to `__integer__`
+    -   `oOBJECTo` changed to `__object__`
+-   Fixed error when loading marshal data using `string: "utf8"` options property along with `convertInstanceVarToString` options property.
+
 ## 0.5.0
 
 -   Hugely improved stringifying load()ed objects potential: For example, instead of parsing object's class as a symbol, it parses class as a string of .\_\_class object property.

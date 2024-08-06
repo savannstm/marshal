@@ -44,7 +44,7 @@ class Dumper {
         return this.data.subarray(0, this.length);
     }
 
-    private isPlainObject(object: unknown) {
+    private isPlainObject(object: Record<string, unknown>) {
         if (typeof object !== "object" || object === null) {
             return false;
         }
@@ -273,13 +273,15 @@ class Dumper {
         }
     }
 
-    private writeKnown(object: object, classString: string, convertStringsToInstanceVar?: boolean | string) {
+    private writeKnown(
+        object: Record<string, unknown>,
+        classString: string,
+        convertStringsToInstanceVar?: boolean | string
+    ) {
         this.writeRemember(object);
 
-        // @ts-expect-error object can be indexed by string
         if (object[extendsString]) {
-            // @ts-expect-error object can be indexed by string
-            this.writeExtended(object[extendsString]);
+            this.writeExtended(object[extendsString] as symbol[]);
         }
 
         this.writeByte(Constants.Object);
@@ -306,7 +308,8 @@ class Dumper {
                 break;
             case typeof object === "number":
                 if (Number.isInteger(object)) {
-                    if (-0x40000000 <= object && object < 0x40000000) {
+                    // Ruby Fixnum type can hold integers from -2^30 to 2^30 - 1, on 32-bit architecture.
+                    if (-0x40_000_000 <= object && object < 0x40_000_000) {
                         this.writeByte(Constants.FixNum);
                         this.writeLong(object);
                     } else {
@@ -347,6 +350,8 @@ class Dumper {
                 break;
             case (object as Record<string, unknown>).__type === "RubyObject":
             case object instanceof RubyObject: {
+                delete (object as Record<string, unknown>)["__type"];
+
                 this.writeRemember(object);
 
                 if ((object as RubyObject).__data !== undefined) {
@@ -383,6 +388,8 @@ class Dumper {
             }
             case (object as Record<string, unknown>).__type === "RubyStruct":
             case object instanceof RubyStruct:
+                delete (object as Record<string, unknown>)["__type"];
+
                 this.writeRemember(object);
                 this.writeClass(Constants.Struct, object as RubyStruct);
                 this.writeInstanceVar(
@@ -438,12 +445,16 @@ class Dumper {
                 break;
             case (object as Record<string, unknown>).__type === "RubyClass":
             case object instanceof RubyClass:
+                delete (object as Record<string, unknown>)["__type"];
+
                 this.writeRemember(object);
                 this.writeByte(Constants.Class);
                 this.writeString((object as RubyClass).__name);
                 break;
             case (object as Record<string, unknown>).__type === "RubyModule":
             case object instanceof RubyModule:
+                delete (object as Record<string, unknown>)["__type"];
+
                 this.writeRemember(object);
                 this.writeByte((object as RubyModule).__old ? Constants.ModuleOld : Constants.Module);
                 this.writeString((object as RubyModule).__name);
@@ -486,7 +497,7 @@ class Dumper {
                 }
                 break;
             }
-            case this.isPlainObject(object): {
+            case this.isPlainObject(object as Record<string, unknown>): {
                 this.writeRemember(object);
 
                 // @ts-expect-error object can be indexed by string
@@ -503,12 +514,12 @@ class Dumper {
                     let actualKey: null | number | symbol = null;
 
                     if (typeof key === "string") {
-                        if (key.startsWith(":SYMBOL:")) {
-                            actualKey = Symbol.for(key.slice(8));
-                        } else if (key.startsWith("iINTEGERi")) {
-                            actualKey = Number.parseInt(key.slice(9));
-                        } else if (key.startsWith("oOBJECTo")) {
-                            actualKey = JSON.parse(key.slice(8));
+                        if (key.startsWith("__symbol__")) {
+                            actualKey = Symbol.for(key.slice(10));
+                        } else if (key.startsWith("__integer__")) {
+                            actualKey = Number.parseInt(key.slice(11));
+                        } else if (key.startsWith("__object__")) {
+                            actualKey = JSON.parse(key.slice(10));
                         }
                     }
 
@@ -527,7 +538,7 @@ class Dumper {
 
                 for (const classString in encodeKnown) {
                     if (prototype === encodeKnown[classString].prototype) {
-                        this.writeKnown(object, classString, convertStringsToInstanceVar);
+                        this.writeKnown(object as Record<string, unknown>, classString, convertStringsToInstanceVar);
                         return;
                     }
                 }
@@ -536,7 +547,7 @@ class Dumper {
                     const symbol = encodeUnknown(object);
 
                     if (symbol) {
-                        this.writeKnown(object, symbol, convertStringsToInstanceVar);
+                        this.writeKnown(object as Record<string, unknown>, symbol, convertStringsToInstanceVar);
                         return;
                     }
                 }

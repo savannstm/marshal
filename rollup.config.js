@@ -9,12 +9,10 @@ export default [
             {
                 file: "dist/marshal.mjs",
                 format: "es",
-                sourcemap: true,
             },
             {
                 file: "dist/marshal.js",
                 format: "cjs",
-                sourcemap: true,
             },
         ],
         plugins: [typescript(), terser()],

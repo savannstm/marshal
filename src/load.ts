@@ -49,7 +49,7 @@ class Loader {
     }
 
     public empty() {
-        return !(this.pos < this.view.byteLength);
+        return this.pos >= this.view.byteLength;
     }
 
     public get() {
@@ -184,10 +184,10 @@ class Loader {
             case type === "symbol" || type === "string" || type === "number":
                 if (type === "symbol") {
                     if (convertSymbolKeysToString) {
-                        key = `:SYMBOL:${Symbol.keyFor(key as symbol)}`;
+                        key = `__symbol__${Symbol.keyFor(key as symbol)}`;
                     }
                 } else if (type === "number") {
-                    key = `iINTEGERi${key}`;
+                    key = `__integer__${key}`;
                 }
 
                 hash[key as typeof type] = value;
@@ -199,7 +199,7 @@ class Loader {
                 hash[key.number] = value;
                 break;
             case key instanceof RubyObject || typeof key === "object":
-                key = `oOBJECTo${JSON.stringify(key)}`;
+                key = `__object__${JSON.stringify(key)}`;
                 hash[key as string] = value;
         }
 
@@ -215,12 +215,16 @@ class Loader {
         if (convertInstanceVarsToString !== undefined) {
             const symbolString = Symbol.keyFor(key as symbol) as string;
 
-            if (typeof convertInstanceVarsToString === "boolean") {
-                // @ts-expect-error object can be indexed by string
-                object[symbolString] = value;
-            } else {
-                // @ts-expect-error object can be indexed by string
-                object[symbolString.replace(/^@/, convertInstanceVarsToString)] = value;
+            try {
+                if (typeof convertInstanceVarsToString === "boolean") {
+                    // @ts-expect-error object can be indexed by string
+                    object[symbolString] = value;
+                } else {
+                    // @ts-expect-error object can be indexed by string
+                    object[symbolString.replace(/^@/, convertInstanceVarsToString)] = value;
+                }
+            } catch {
+                // Object cannot hold properties
             }
         } else {
             try {
@@ -322,7 +326,7 @@ class Loader {
                 return this.pushObject(new RubyClass(this.readString()));
             case Constants.Module:
             case Constants.ModuleOld:
-                return this.pushObject(new RubyModule(this.readString(), (type as number) === Constants.ModuleOld));
+                return this.pushObject(new RubyModule(this.readString(), type === Constants.ModuleOld));
             case Constants.Float: {
                 const index = this.readFloat();
                 return this.pushObject(numeric ? new RubyFloat(index) : index);
@@ -335,7 +339,7 @@ class Loader {
                 switch (hashType) {
                     case "map": {
                         const number = this.readFixNum();
-                        const map: Map<unknown, unknown> = this.pushObject(new Map());
+                        const map = this.pushObject(new Map());
 
                         for (let i = 0; i < number; ++i) {
                             const key = this.readNext();
@@ -344,7 +348,7 @@ class Loader {
                             map.set(key, value);
                         }
 
-                        if ((type as number) === Constants.HashDef) {
+                        if (type === Constants.HashDef) {
                             defineHashDefault(map, this.readNext());
                         }
 
@@ -361,7 +365,7 @@ class Loader {
                             wrapper.entries.push([key, value]);
                         }
 
-                        if ((type as number) === Constants.HashDef) {
+                        if (type === Constants.HashDef) {
                             wrapper.default = this.readNext();
                         }
 
@@ -378,7 +382,7 @@ class Loader {
                             this.setHash(hash, key, value, symbolToString);
                         }
 
-                        if ((type as number) === Constants.HashDef) {
+                        if (type === Constants.HashDef) {
                             defineHashDefault(hash, this.readNext());
                         }
 
@@ -431,11 +435,9 @@ class Loader {
                 switch (type) {
                     case Constants.Data:
                         object.__data = this.readNext();
-                        console.log(typeof object.__data);
                         break;
                     case Constants.UserClass:
                         object.__wrapped = this.readNext() as typeof object.__wrapped;
-                        console.log(typeof object.__wrapped);
                         break;
                     case Constants.UserDef:
                         object.__userDefined = this.readChunk();

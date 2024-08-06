@@ -1,6 +1,6 @@
 {
     "name": "@savannstm/marshal",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "author": "hyrious <hyrious@outlook.com>",
     "contributors": [
         "savannstm <savannstm@gmail.com>"
@@ -25,8 +25,7 @@
     "main": "./dist/marshal.js",
     "types": "./dist/marshal.d.ts",
     "files": [
-        "dist",
-        "src"
+        "dist"
     ],
     "engines": {
         "node": "^14.18.0 || >=16.0.0"
@@ -36,13 +35,13 @@
         "@hyrious/marshal": "^0.3.3",
         "@rollup/plugin-terser": "^0.4.4",
         "@rollup/plugin-typescript": "^11.1.6",
-        "@savannstm/marshal": "^0.4.4",
+        "@savannstm/marshal": "^0.5.0",
         "@types/bun": "^1.1.6",
         "eslint": "^9.8.0",
-        "rollup": "^4.19.1",
+        "rollup": "^4.20.0",
         "rollup-plugin-dts": "^6.1.1",
         "tslib": "^2.6.3",
-        "typescript-eslint": "^7.18.0",
+        "typescript-eslint": "^8.0.1",
         "uvu": "^0.5.6"
     },
     "peerDependencies": {

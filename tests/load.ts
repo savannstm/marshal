@@ -1,198 +1,293 @@
-import * as assert from "uvu/assert";
-import * as marshal from "../src";
-import { LoadOptions } from "../src";
-import { describe, rb_dump, rb_str } from "./helper";
+import { load } from "../src";
+import { getLineNumber } from "./functions";
 
-function loads(code: string, options?: LoadOptions): Promise<unknown> {
-    return rb_dump(code).then((e) => marshal.load(e, options));
+console.log("Loading");
+
+// Incorrect Marshal version
+{
+    try {
+        load(new Uint8Array([0x04, 0x09]));
+        throw "Must panic on incompatible marshal version";
+    } catch {
+        /* empty */
+    }
 }
 
-describe("load", (test) => {
-    test("error on short data", async () => {
-        try {
-            await marshal.load(Uint8Array.of());
-            assert.unreachable("should throw error");
-        } catch (e) {
-            assert.instance(e, TypeError);
-            assert.match(e.message, /Marshal data is too short./);
-        }
-        try {
-            await marshal.load(Uint8Array.of(0x4, 0x8, "i".charCodeAt(0)));
-            assert.unreachable("should throw error");
-        } catch (e) {
-            assert.instance(e, TypeError);
-            assert.match(e.message, /Marshal data is too short./);
-        }
-        try {
-            await marshal.load(Uint8Array.of(0x4, 0x9, 0, 0));
-            assert.unreachable("should throw error");
-        } catch (e) {
-            assert.instance(e, TypeError);
-            assert.match(e.message, /Incompatible Marshal file format or version./);
-        }
-    });
+// Null
+{
+    const left = load("\x04\x08\x30");
+    const right = null;
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
 
-    test("trivial value", async () => {
-        assert.is(await loads(`nil`), null);
-        assert.is(await loads(`true`), true);
-        assert.is(await loads(`false`), false);
-        assert.is(await loads(`0`), 0);
-        assert.equal(await loads(`[]`), []);
-        assert.equal(await loads(`{}`), {});
-    });
+// Boolean
+{
+    {
+        const left = load("\x04\x08\x54");
+        const right = true;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-    test("number", async () => {
-        assert.is(await loads(`114514`), 114514);
-        assert.is(await loads(`-1919810`), -1919810);
-        assert.is(await loads(`1145141919810`), 1145141919810);
-        assert.is(await loads(`123.456`), 123.456); // please, don't compare float
+    {
+        const left = load("\x04\x08\x46");
+        const right = false;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-        const zero = await loads(`-0.0`, { numeric: "wrap" });
-        assert.instance(zero, marshal.RubyFloat);
-        assert.is(zero.value, -0);
-    });
+// Positive fixnum
+{
+    {
+        const left = load("\x04\x08\x69\x00");
+        const right = 0;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = load("\x04\x08\x69\x0a");
+        const right = 5;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = load("\x04\x08\x69\x02\x2c\x01");
+        const right = 300;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = load("\x04\x08\x69\x03\x70\x11\x01");
+        const right = 70000;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = load("\x04\x08\x69\x04\x00\x00\x00\x01");
+        const right = 16777216;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("string", async () => {
-        const repeat = (Math.random() * 100) | 0;
-        assert.is(await loads(`'a' * ${repeat}`), "a".repeat(repeat));
-        assert.is(await loads(`"a".force_encoding 'ascii'`), "a");
+// Negative fixnum
+{
+    {
+        const left = load("\x04\x08\x69\xf6");
+        const right = -5;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const data = await loads(`"a".force_encoding 'binary'`);
-        assert.instance(data, Uint8Array);
-        assert.is(data[0], 97);
+    {
+        const left = load("\x04\x08\x69\xfe\xd4\xfe");
+        const right = -300;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const gbk = await loads(`"中文".encode 'GBK'`);
-        assert.is(gbk, "中文");
+    {
+        const left = load("\x04\x08\x69\xfd\x90\xee\xfe");
+        const right = -70000;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-        const binary_as_utf8 = await loads(`"a".force_encoding 'binary'`, { string: "utf8" });
-        assert.is(binary_as_utf8, "a");
+// Bignum
+{
+    {
+        const left = JSON.stringify(load("\x04\x08l+\n\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00"));
+        const right = JSON.stringify({ __type: "bigint", value: "36893488147419103232" });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const utf8_as_binary = await loads(`"a"`, { string: "binary" });
-        assert.instance(utf8_as_binary, Uint8Array);
-        assert.is(utf8_as_binary[0], 97);
-    });
+    {
+        const left = JSON.stringify(load("\x04\x08l+\n\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00"));
+        const right = JSON.stringify({ __type: "bigint", value: "73786976294838206464" });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-    test("symbol", async () => {
-        assert.is(await loads(`:symbol`), Symbol.for("symbol"));
-    });
+    {
+        const left = JSON.stringify(load("\x04\x08l+\n\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00"));
+        const right = JSON.stringify({ __type: "bigint", value: "147573952589676412928" });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("regexp", async () => {
-        assert.equal(await loads(`/hello/`), /hello/);
-        const re: marshal.RubyRegexp = await loads(`/hello/mix`, { regexp: "wrap" });
+// Negative bignum
+{
+    const left = JSON.stringify(load("\x04\x08l-\n\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00"));
+    const right = JSON.stringify({ __type: "bigint", value: "-36893488147419103232" });
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
 
-        assert.instance(re, marshal.RubyRegexp);
-        assert.is(re.source, "hello");
-        assert.is(
-            re.options,
-            marshal.Constants.RegExpMultiline | marshal.Constants.RegExpIgnoreCase | marshal.Constants.RegExpExtended
+// Float
+{
+    // Zero float
+    {
+        const left = load("\x04\x08f\x06\x30");
+        const right = 0;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    // Minus zero float
+    {
+        const left = load("\x04\x08f\x07-0");
+        const right = -0;
+        console.assert(Object.is(left, right), { line: getLineNumber(), left, right });
+    }
+
+    // Pi float
+    {
+        const left = load("\x04\x08f\x0C\x33\x2E\x31\x34\x31\x35\x39");
+        const right = 3.14159;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    // E float
+    {
+        const left = load("\x04\x08f\x0D\x2D\x32\x2E\x37\x31\x38\x32\x38");
+        const right = -2.71828;
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Strings with instance vars
+{
+    {
+        const left = load('\x04\x08I"\x11Short string\x06:\x06ET');
+        const right = "Short string";
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    {
+        const left = load(
+            '\x04\x08I"\x01\xdcLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong string\x06:\x06ET',
         );
-    });
+        const right = "Long string".repeat(20);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("hash", async () => {
-        const hash = await loads(`a = Hash.new(false); a[:a] = true; a`);
-        assert.is(hash[marshal.defaultString], false);
-        assert.is(hash[Symbol.for("a")], true);
-    });
-
-    test("extended", async () => {
-        const obj1: marshal.RubyObject = await loads(`module M end; class A end; a = A.new; a.extend M; a`);
-
-        assert.is(obj1.classSymbol, Symbol.for("A"));
-        assert.equal(obj1[marshal.extendsString], [Symbol.for("M")]);
-
-        const obj2: marshal.RubyObject = await loads(
-            `module M end; class A end; a = A.new; a.singleton_class.prepend M; a`
-        );
-
-        assert.is(obj2.classSymbol, Symbol.for("A"));
-        assert.equal(obj2[marshal.extendsString], [Symbol.for("M"), Symbol.for("A")]);
-    });
-
-    test("circular", async () => {
-        const arr: unknown[] = await loads(`a = []; a << a; a`);
-        assert.is(arr[0], arr);
-
-        const hash = await loads(`a = {}; a[:a] = a; a`);
-        assert.is(hash[Symbol.for("a")], hash);
-
-        const obj: marshal.RubyObject = await loads(`a = Object.new; a.instance_variable_set :@a, a; a`);
-        assert.is(obj[Symbol.for("@a")], obj);
-    });
-
-    test("struct", async () => {
-        const struct = marshal.load(
-            await rb_str`"\004\bS:\023Struct::Useful\a:\006ai\006:\006bi\a"`
-        ) as marshal.RubyStruct;
-
-        assert.instance(struct, marshal.RubyStruct);
-        assert.is(struct.classSymbol, Symbol.for("Struct::Useful"));
-        assert.is(struct.members[Symbol.for("a")], 1);
-        assert.is(struct.members[Symbol.for("b")], 2);
-    });
-
-    test("hashSymbolKeysToString", async () => {
-        const hash = await loads(`{ a: 1, "b" => 2 }`, { convertHashKeysToString: true });
-        assert.equal(hash, { ":SYMBOL:a": 1, b: 2 });
-    });
-
-    test("hash: map | wrap", async () => {
-        const map: Map<unknown, unknown> = await loads(`{ a: 1, "b" => 2 }`, { hash: "map" });
-        assert.instance(map, Map);
-        assert.equal(map.get(Symbol.for("a")), 1);
-        assert.equal(map.get("b"), 2);
-
-        const wrapper: marshal.RubyHash = await loads(`{ a: 1, "b" => 2 }`, { hash: "wrap" });
-        assert.instance(wrapper, marshal.RubyHash);
-        assert.equal(wrapper.entries, [
-            [Symbol.for("a"), 1],
-            ["b", 2],
-        ]);
-    });
-
-    test("ivarToString", async () => {
-        let obj = await loads(`a = Object.new; a.instance_variable_set :@a, 1; a`, {
-            convertInstanceVarsToString: true,
+// Force strings to binary
+{
+    {
+        const shortString = '\x04\x08I"\x11Short string\x06:\x06ET';
+        const left = JSON.stringify(load(shortString, { stringMode: "binary" }));
+        const right = JSON.stringify({
+            __type: "bytes",
+            data: [83, 104, 111, 114, 116, 32, 115, 116, 114, 105, 110, 103],
         });
-        assert.is(obj["@a"], 1);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        obj = await loads(`a = Object.new; a.instance_variable_set :@a, 1; a`, { convertInstanceVarsToString: "_" });
-        assert.is(obj["_a"], 1);
+    {
+        const longString =
+            '\x04\x08I"\x01\xdcLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong stringLong string\x06:\x06ET';
+        const left = JSON.stringify(load(longString, { stringMode: "binary" }));
+        const right = JSON.stringify({
+            __type: "bytes",
+            data: [
+                76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110,
+                103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105,
+                110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+                105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+                114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115,
+                116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32,
+                115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103,
+                32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110,
+                103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111,
+                110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76,
+                111, 110, 103, 32, 115, 116, 114, 105, 110, 103,
+            ],
+        });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-        obj = await loads(`a = Object.new; a.instance_variable_set :@a, 1; a`, { convertInstanceVarsToString: "" });
-        assert.is(obj["a"], 1);
+// Invalid string length
+{
+    try {
+        load('\x04\x08"\x10\xf0(\x8c(');
+        throw "Must panic because of invalid string length";
+    } catch {
+        /* empty */
+    }
+}
 
-        obj = await loads(`a = Object.new; a.instance_variable_set :@a, 1; a`, { convertInstanceVarsToString: "@@" });
-        assert.is(obj["@@a"], 1);
+// Regexp
+{
+    // Without x flag
+    {
+        const left = JSON.stringify(load("\x04\bI/\nligma\x05\x06:\x06EF"));
+        const right = JSON.stringify({ __type: "regexp", expression: "ligma", flags: "im" });
+
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    // With x flag
+    {
+        const left = JSON.stringify(load("\x04\bI/\nligma\x07\x06:\x06EF"));
+        const right = JSON.stringify({ __type: "regexp", expression: "ligma", flags: "ixm" });
+
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Link
+{
+    const left = JSON.stringify(
+        load("\x04\x08[\x08[\x08f\x080.1@\x07@\x07[\x08f\x080.2@\x09@\x09[\x08f\x080.3@\x0b@\x0b"),
+    );
+    const right = JSON.stringify([
+        [0.1, 0.1, 0.1],
+        [0.2, 0.2, 0.2],
+        [0.3, 0.3, 0.3],
+    ]);
+
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
+
+// Array
+{
+    const left = JSON.stringify(load('\x04\x08[\x0ai\x06I"\x08two\x06:\x06ETf\x063[\x06i\x09{\x06i\x0ai\x0b'));
+    const right = JSON.stringify([1, "two", 3.0, [4], { __integer__5: 6 }]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
+
+// Hash
+{
+    {
+        const left = JSON.stringify(
+            load('\x04\x08{\x08i\x06I"\x08one\x06:\x06ETI"\x08two\x06;\x00Ti\x07o:\x0bObject\x000'),
+        );
+        const right = JSON.stringify({
+            __integer__1: "one",
+            two: 2,
+            '__object__{"__class":"__symbol__Object","__type":"object"}': null,
+        });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    {
+        const left = JSON.stringify(load('\x04\x08}\x00I"\x0cdefault\x06:\x06ET'));
+        const right = JSON.stringify({ __ruby_default__: "default" });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Struct
+{
+    {
+        const left = JSON.stringify(load('\x04\x08S:\x0bPerson\x07:\x09nameI"\x0aAlice\x06:\x06ET:\x08agei#'));
+        const right = JSON.stringify({
+            __class: "__symbol__Person",
+            __type: "struct",
+            __members: { __symbol__name: "Alice", __symbol__age: 30 },
+        });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Object
+{
+    const left = JSON.stringify(load('\x04\x08o:\x11CustomObject\x06:\x0a@dataI"\x10object data\x06:\x06ET'));
+    const right = JSON.stringify({
+        __class: "__symbol__CustomObject",
+        __type: "object",
+        "__symbol__@data": "object data",
     });
-
-    test("known", async () => {
-        class A {}
-
-        const obj = await loads(`class A end; A.new`, { decodeKnown: { A } });
-        assert.instance(obj, A);
-    });
-
-    test("class and module", async () => {
-        class A {}
-
-        const class_ = await loads(`class A end; A`, { decodeKnown: { A } }); // 'known' has no effect here
-        assert.instance(class_, marshal.RubyClass);
-        assert.is((class_ as marshal.RubyClass).__name, "A");
-
-        const mod = await loads(`module A end; A`, { decodeKnown: { A } });
-        assert.instance(mod, marshal.RubyModule);
-        assert.is((mod as marshal.RubyClass).__name, "A");
-    });
-
-    test("loadAll", async () => {
-        const a = await rb_dump("42");
-        const b = await rb_dump('"a"');
-        const c = new Uint8Array(a.byteLength + b.byteLength);
-
-        c.set(a, 0);
-        c.set(b, a.byteLength);
-
-        const obj = marshal.loadAll(c);
-        assert.equal(obj, [42, "a"]);
-    });
-});
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}

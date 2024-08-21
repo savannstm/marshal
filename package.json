@@ -1,6 +1,6 @@
 {
     "name": "@savannstm/marshal",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "author": "hyrious <hyrious@outlook.com>",
     "contributors": [
         "savannstm <savannstm@gmail.com>"
@@ -11,7 +11,8 @@
     "keywords": [
         "ruby",
         "marshal",
-        "serialize"
+        "serialize",
+        "deserialize"
     ],
     "exports": {
         "node": {
@@ -31,24 +32,24 @@
         "node": "^14.18.0 || >=16.0.0"
     },
     "devDependencies": {
-        "@eslint/js": "^10.0.0",
+        "@eslint/js": "^9.9.0",
         "@hyrious/marshal": "^0.3.3",
         "@rollup/plugin-terser": "^0.4.4",
         "@rollup/plugin-typescript": "^11.1.6",
-        "@savannstm/marshal": "^0.5.0",
+        "@savannstm/marshal": "^0.5.1",
         "@types/bun": "^1.1.6",
-        "eslint": "^9.8.0",
-        "rollup": "^4.20.0",
+        "eslint": "^9.9.0",
+        "rollup": "^4.21.0",
         "rollup-plugin-dts": "^6.1.1",
-        "tslib": "^2.6.3",
-        "typescript-eslint": "^8.0.1",
-        "uvu": "^0.5.6"
+        "tsx": "^4.17.0",
+        "typescript-eslint": "^8.2.0"
     },
     "peerDependencies": {
         "typescript": "^5.5.4"
     },
     "scripts": {
         "build": "rollup -c",
-        "test": "node-ts ./tests/index.ts"
+        "test": "npx tsx ./tests/load.ts && npx tsx ./tests/dump.ts",
+        "test-dev": "npx tsx ./tests-dev/load.ts"
     }
 }

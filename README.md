@@ -3,11 +3,9 @@
 TypeScript implementation of Ruby Marshal, that can be used both in browser and in Node.js.
 This project is a fork of [@hyrious/marshal](https://github.com/hyrious/marshal), rewritten according to ES6 standards and adding some additional features.
 
-## Install
+## Installation
 
-```
-npm i @savannstm/marshal
-```
+`npm i @savannstm/marshal`
 
 ## Usage
 
@@ -23,136 +21,61 @@ load(fs.readFileSync("data"));
 load(await file.arrayBuffer());
 ```
 
-### Ruby &harr; JavaScript
+## Overview
 
-| Ruby         | JavaScript                             |
-| ------------ | -------------------------------------- |
-| `nil`        | `null`                                 |
-| `"string"`   | `"string"`                             |
-| `:symbol`    | `Symbol("symbol")`                     |
-| `123456`     | `123456` (number)                      |
-| `123.456`    | `123.456` (number)                     |
-| `/cat/im`    | `/cat/im` (RegExp)                     |
-| `[]`         | `[]`                                   |
-| `{}`         | `{}` (plain object)                    |
-| `Object.new` | `RubyObject { class: Symbol(object) }` |
+This library has two main functions: `load()` and `dump()`.
+`load()` takes a `Uint8Array`, `ArrayBuffer` or `string`, consisting of Marshal data bytes as its only argument, and outputs JSON object.
+`dump()` takes a JavaScript object, and outputs respective Marshal Uint8Array of bytes.
 
-#### String
+`load()` serializes Ruby data to JSON using the table:
 
-Because users may store binary data that cannot be decoded as UTF-8 in Ruby,
-strings are decoded into `Uint8Array` firstly, then converted to `string`
-using `TextDecoder` if seeing an instance variable indicating the encoding.
+| Ruby object                                    | Serialized to JSON                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `nil`                                          | `null`                                                                       |
+| `1337` (Integer)                               | `1337`                                                                       |
+| `36893488147419103232` (Big Integer)           | `{ __type: "bigint", value: "36893488147419103232" }` (Plain object)         |
+| `13.37` (Float)                                | `13.37`                                                                      |
+| `"ligma"` (String)                             | `"ligma"`                                                                    |
+| `:ligma` (Symbol)                              | `"__symbol__ligma"`                                                          |
+| `/ligma/xim` (Regex)                           | `{ "__type": "regexp", "expression": "ligma", flags: "xim" }` (Plain object) |
+| `[]` (Array)                                   | `[]`                                                                         |
+| `{}` (Hash)                                    | `{}` (Plain object)                                                          |
+| `Object.new` (Including structs, modules etc.) | `{ "__class": "__symbol__Object", "__type": "object" }` (Plain object)       |
 
-```js
-load('\x04\b"\0'); //=> Uint8Array []
-load('\x04\bI"\0\x06:\x06ET'); //=> ""
-```
+### String
 
-The special instance variables are:
+By default, Ruby strings that include encoding instnace variable are serialized to JSON strings, and those which don't, serialized to `{ __type: "bytes", data: [...] }` objects.
 
-| name        | value        | encoding      |
-| ----------- | ------------ | ------------- |
-| `:E`        | true / false | UTF-8 / ASCII |
-| `:encoding` | "enc"        | enc           |
+This behavior can be controlled with the `stringMode` option of `load()` function.
 
-So for strict compatibility, you should check if a string is Uint8Array before using it:
+`stringMode: "utf8"` tries to convert arrays without instance variable to string, and produces string if array is valid UTF8, and object otherwise.
 
-```js
-var a = load(data);
-if (a instanceof Uint8Array) a = decode(a); // if you know it must be a string
-if (typeof a === "string") do_something(a);
-```
+`stringMode: "binary"` converts all strings to objects.
 
-Or you can use `options.string` to control the behavior, see [options.string](./docs/api.md#optionsstring-utf8--binary).
-
-#### Symbols
+### Symbols
 
 Symbols are always decoded in UTF-8 even if they may have other encodings.
-You can use `Symbol.keyFor(sym)` in JavaScript to get the symbol name in string.
 
-#### RegExp
+### Instance Variables
 
-Only `i` (ignore case) and `m` (multi-line) flags are preserved.
-However, it is still possible to read all flags by wrapper class, see [options.regexp](./docs/api.md#optionsregexp-wrap).
+Instance variables always decoded as strings with `__symbol__` prefix.
+You can manage the prefix of instance variables using `instance_var_prefix` argument in `load()` and `dump()`. Passed string replaces "@" instance variables' prefixes.
 
-#### Hash
+### Stringifying load()ed JSON objects
 
-This library decodes Hash as plain object by default, and always decodes strings, symbols and numbers as object properties. It converts symbols and numbers to string, but preserves their types by prefixing these strings with ":SYMBOL:" for symbols and "iINTEGERi" for numbers.
-It also tries to convert objects to strings, using JSON.stringify() and prefixing resulting string with "oOBJECTo", but this approach does NOT guarantee that resulting key will be dumped back to it's initial form.
-However, it is still possible to keep these keys using `Map` or wrapper classes, see [options.hash](./docs/api.md#optionshash-map--wrap).
+Implementation of this library allows you to stringify `load()`ed JSON objects out of the box.
 
-#### Instance Variables
+## [API Reference](./docs/api.md)
 
-This library decodes instance variables (often `@a = 1`) as object props, i.e. `obj[Symbol(@a)] = 1`.
-It is guaranteed that you can retrieve these properties using `Object.getOwnPropertySymbols()`.
-It is possible to convert these symbols to strings when loading, see [options.convertInstanceVarsToString](./docs/api.md#optionsconvertinstancevarstostring-true--string), and strings to symbols when dumping, see [options.convertStringsToInstanceVar](./docs/api.md#optionsconvertstringstoinstancevar-true--string).
+## [FAQ](./docs/faq.md)
 
-#### Stringifying load()ed JSON objects
+## [Changelog](./CHANGELOG.md)
 
-Implementation of this library allows you to stringify load()ed JSON objects, write them to files, then read them back and dump() to working Ruby Marshal files.
-There's one moment to notice: Library handles almost everything, so you can safely stringify objects and parse them back, except for Uint8Arrays.
-So when you stringify loaded files, you should handle that manually.
-For example:
+## Development
 
-```js
-import { writeFileSync, readFileSync } from "node:fs";
-import { dump, load } from "@savannstm/marshal";
+-   Run `npm test` to run tests.
 
-// Read the Ruby Marshal file data
-const rubyMarshalFileData = readFileSync(path);
-
-// Load the Ruby Marshal file data to JSON object
-const loaded = load(rubyMarshalFileData, {
-    convertHashKeysToString: true,
-    convertInstanceVarsToString: true,
-});
-
-// Stringify and replace Uint8Array structures to something, that can be stringified
-const stringified = JSON.stringify(loaded, (key, value) => {
-    if (value instanceof Uint8Array) {
-        return {
-            __type: "Uint8Array",
-            data: Array.from(value),
-        };
-    }
-
-    return value;
-});
-
-// Write stringified object to file
-await writeFileSync(outputPath, stringified);
-
-// Read stringified object from file
-const stringifiedJSON = await readFileSync(outputPath);
-
-// Revive Uint8Array structures
-const parsed = JSON.parse(stringifiedJSON, (_, value) => {
-    if (value && value.__type === "Uint8Array") {
-        return new Uint8Array(value.data);
-    }
-
-    return value;
-});
-
-// Dump the data back to Ruby Marshal format
-const dumped = dump(parsed, {
-    convertStringsToInstanceVar: true,
-});
-
-// Profit!
-```
-
-### [API Reference](./docs/api.md)
-
-### [FAQ](./docs/faq.md)
-
-### [Changelog](./CHANGELOG.md)
-
-### Developing
-
--   Run `npm run test` to run tests.
-
-### Reference
+## Reference
 
 -   [marshal.c](https://github.com/ruby/ruby/blob/master/marshal.c)
 -   [Marshal Format](https://github.com/ruby/ruby/blob/master/doc/marshal.rdoc) (official doc)

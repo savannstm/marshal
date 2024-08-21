@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+-   :warning: BREAKING. Read the [API Reference](./docs/api.md) to learn the new API.
+-   Now, this library emphasizes serializing Ruby Marshal objects to stringifiable JSON objects. Now you can stringify load()ed JSON object right out of the box.
+-   Added full-featured BigInt support. Enjoy.
+-   ((Probably)) Fixed incorrect object links processing, which could've led to missing fields in serialized JSON objects.
+-   Removed `numeric`, `convertHashKeysToString`, `hash`, `regexp`, `convertInstanceVarsToString` options of `load()` function.
+-   Added `instanceVarPrefix` option to `load()` function.
+-   Removed `convertStringsToInstanceVar` option of `dump()` function.
+-   Added `instanceVarPrefix`, `maxByteLength` options to `dump()` function.
+
 ## 0.5.1
 
 -   Fixed dumping objects' `__type` helper property back to marshal data.

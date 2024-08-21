@@ -1,69 +1,42 @@
-import { Constants, encodingShortSymbol, encodingSymbol, extendsString, defaultString } from "./constants";
-import {
-    Hash,
-    RubyClass,
-    RubyFloat,
-    RubyHash,
-    RubyInteger,
-    RubyModule,
-    RubyObject,
-    RubyStruct,
-    RubyRegexp,
-} from "./ruby-classes";
+import { Constants, defaultSymbol, encodingShortSymbol, encodingSymbol, extendsSymbol } from "./constants";
 import { LoadOptions } from "./options";
+
+type PlainObject = Record<string, unknown>;
 
 const decoder = new TextDecoder();
 const decode = (buffer: Uint8Array) => decoder.decode(buffer);
 
-function defineExtends(object: unknown): symbol[] | undefined {
-    // @ts-expect-error object can be indexed by string
-    if (typeof object === "object" && object && !object[extendsString]) {
-        const value: symbol[] = [];
-
-        Object.defineProperty(object, extendsString, { value, configurable: true });
-
-        return value;
-    }
-
-    // @ts-expect-error object can be indexed by string
-    return object && object[extendsString];
-}
-
-function defineHashDefault(hash: object, value: unknown) {
-    Object.defineProperty(hash, defaultString, { value, configurable: true });
-}
+const fatalDecoder = new TextDecoder("utf-8", { fatal: true });
+const fatalDecode = (buffer: Uint8Array) => fatalDecoder.decode(buffer);
 
 class Loader {
-    private pos: number;
+    private bytePosition: number;
     private readonly view: DataView;
-    private readonly symbols: symbol[];
+    private readonly symbols: string[];
     private readonly objects: unknown[];
     private readonly options: LoadOptions;
+    private readonly marshalVersion = 0x0408;
 
-    constructor(view: DataView, options: LoadOptions = {}) {
-        this.pos = 0;
+    constructor(view: DataView, loadOptions: LoadOptions = {}) {
+        this.bytePosition = 0;
         this.view = view;
         this.symbols = [];
         this.objects = [];
-        this.options = options;
+        this.options = loadOptions;
     }
 
-    public empty() {
-        return this.pos >= this.view.byteLength;
-    }
-
-    public get() {
-        if (this.pos + 2 >= this.view.byteLength) {
+    public load() {
+        if (this.bytePosition + 2 >= this.view.byteLength) {
             throw new TypeError("Marshal data is too short.");
         }
 
         // First two bytes indicate the Marshal version.
         // Latest Version 4.8 is used since Ruby 1.8.0 and is indicated by 0x04 and 0x08 bytes.
-        if (this.view.getInt16(this.pos) !== 0x0408) {
+        if (this.view.getUint16(this.bytePosition) !== this.marshalVersion) {
             throw new TypeError("Incompatible Marshal file format or version.");
         }
 
-        this.pos += 2;
+        this.bytePosition += 2;
 
         const value = this.readNext() as object;
         this.symbols.length = 0;
@@ -73,49 +46,52 @@ class Loader {
     }
 
     private readByte(): number {
-        if (this.pos >= this.view.byteLength) {
+        if (this.bytePosition >= this.view.byteLength) {
             throw new TypeError("Marshal data is too short.");
         }
 
-        return this.view.getUint8(this.pos++);
+        return this.view.getUint8(this.bytePosition++);
     }
 
-    private readBytes(count: number): Uint8Array {
-        if (this.pos + count > this.view.byteLength) {
+    private readBytes(amount: number): Uint8Array {
+        if (this.bytePosition + amount > this.view.byteLength) {
             throw new TypeError("Marshal data is too short.");
         }
 
-        this.pos += count;
-        return new Uint8Array(this.view.buffer, this.view.byteOffset + (this.pos - count), count);
+        const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.bytePosition, amount);
+
+        this.bytePosition += amount;
+        return bytes;
     }
 
-    private readFixNum(): number {
-        if (this.pos >= this.view.byteLength) {
+    private readFixnum(): number {
+        if (this.bytePosition >= this.view.byteLength) {
             throw new TypeError("Marshal data is too short.");
         }
 
-        const type = this.view.getInt8(this.pos++);
+        const fixnumLength = this.view.getInt8(this.bytePosition++);
 
-        if (type === 0) {
+        if (fixnumLength === 0) {
             return 0;
-        } else if (-4 <= type && type <= 4) {
-            const negative = Math.abs(type);
-            const scaled = (4 - negative) * 8;
-            const bytes = this.readBytes(negative);
-            let accumulated = 0;
+        } else if (-4 <= fixnumLength && fixnumLength <= 4) {
+            const absolute = Math.abs(fixnumLength);
+            const scaled = (4 - absolute) * 8;
+            const bytes = this.readBytes(absolute);
+            let result = 0;
 
-            for (let i = negative - 1; i >= 0; i--) {
-                accumulated = (accumulated << 8) | bytes[i];
+            for (let i = absolute - 1; i >= 0; i--) {
+                result = (result << 8) | bytes[i];
             }
 
-            return type > 0 ? accumulated : (accumulated << scaled) >> scaled;
+            return fixnumLength > 0 ? result : (result << scaled) >> scaled;
         } else {
-            return type > 0 ? type - 5 : type + 5;
+            return fixnumLength > 0 ? fixnumLength - 5 : fixnumLength + 5;
         }
     }
 
     private readChunk(): Uint8Array {
-        return this.readBytes(this.readFixNum());
+        const amount = this.readFixnum();
+        return this.readBytes(amount);
     }
 
     // Do not use readString() to really load the string, decode it on demand.
@@ -123,171 +99,65 @@ class Loader {
         return decode(this.readChunk());
     }
 
-    private pushObject<T = unknown>(object: T): T {
-        this.objects.push(object);
-        return object;
-    }
-
-    private pushSymbol(symbol: symbol) {
-        this.symbols.push(symbol);
-        return symbol;
-    }
-
-    private readBigNum(): number {
-        const sign = this.readByte();
-        const negative = this.readFixNum() << 1;
-        const bytes = this.readBytes(negative);
-        let accumulated = 0;
-
-        for (let i = 0; i < negative; i++) {
-            accumulated += bytes[i] * 2 ** (i << 3);
-        }
-
-        return sign === Constants.Positive ? accumulated : -accumulated;
-    }
-
-    private readFloat(): number {
-        const string = this.readString();
-
-        switch (string) {
-            case "inf":
-                return Infinity;
-            case "-inf":
-                return -Infinity;
-            case "nan":
-                return NaN;
-            default:
-                return Number.parseFloat(string);
-        }
-    }
-
-    private readRegExp(): RegExp {
-        const string = this.readString();
-        const type = this.readByte();
-        let flags = "";
-
-        if (type & Constants.RegExpIgnoreCase) {
-            flags += "i";
-        }
-
-        if (type & Constants.RegExpMultiline) {
-            flags += "m";
-        }
-
-        return new RegExp(string, flags);
-    }
-
-    private setHash(hash: Hash, key: unknown, value: unknown, convertSymbolKeysToString?: boolean): Hash {
-        const type = typeof key;
-
-        switch (true) {
-            case type === "symbol" || type === "string" || type === "number":
-                if (type === "symbol") {
-                    if (convertSymbolKeysToString) {
-                        key = `__symbol__${Symbol.keyFor(key as symbol)}`;
-                    }
-                } else if (type === "number") {
-                    key = `__integer__${key}`;
-                }
-
-                hash[key as typeof type] = value;
-                break;
-            case key instanceof Uint8Array:
-                hash[decode(key)] = value;
-                break;
-            case key instanceof RubyInteger || key instanceof RubyFloat:
-                hash[key.number] = value;
-                break;
-            case key instanceof RubyObject || typeof key === "object":
-                key = `__object__${JSON.stringify(key)}`;
-                hash[key as string] = value;
-        }
-
-        return hash;
-    }
-
-    private setInstanceVar(
-        object: object,
-        key: unknown,
-        value: unknown,
-        convertInstanceVarsToString?: boolean | string
-    ) {
-        if (convertInstanceVarsToString !== undefined) {
-            const symbolString = Symbol.keyFor(key as symbol) as string;
-
-            try {
-                if (typeof convertInstanceVarsToString === "boolean") {
-                    // @ts-expect-error object can be indexed by string
-                    object[symbolString] = value;
-                } else {
-                    // @ts-expect-error object can be indexed by string
-                    object[symbolString.replace(/^@/, convertInstanceVarsToString)] = value;
-                }
-            } catch {
-                // Object cannot hold properties
-            }
-        } else {
-            try {
-                // @ts-expect-error object can be indexed by unknown?
-                object[key] = value;
-            } catch {
-                // Object cannot hold properties
-            }
-        }
-    }
-
     private readNext(): unknown {
-        const type = this.readByte();
-        const string = this.options.string;
-        const numeric = this.options.numeric === "wrap";
-        const wrapRegExp = this.options.regexp === "wrap";
-        const convertInstanceVarsToString = this.options.convertInstanceVarsToString;
+        const structureType = this.readByte();
+        const stringMode = this.options.stringMode;
         const decodeKnown = this.options.decodeKnown || {};
+        const instanceVarPrefix = this.options.instanceVarPrefix;
 
-        switch (type) {
+        switch (structureType) {
             case Constants.Nil:
                 return null;
             case Constants.True:
                 return true;
             case Constants.False:
                 return false;
-            case Constants.FixNum: {
-                const index = this.readFixNum();
-                return numeric ? new RubyInteger(index) : index;
+            case Constants.Fixnum: {
+                const fixnum = this.readFixnum();
+                return fixnum;
             }
-            case Constants.Symbol:
-                return this.pushSymbol(Symbol.for(this.readString()));
-            case Constants.Symlink:
-                return this.symbols[this.readFixNum()];
-            case Constants.Link:
-                return this.objects[this.readFixNum()];
+            case Constants.Symbol: {
+                const symbol = "__symbol__" + this.readString();
+
+                this.symbols.push(symbol);
+                return symbol;
+            }
+            case Constants.Symlink: {
+                const pos = this.readFixnum();
+                return this.symbols[pos];
+            }
+            case Constants.Link: {
+                const pos = this.readFixnum();
+
+                if (this.objects[pos] === undefined) {
+                    throw new TypeError("Object link points to non-existent object.");
+                }
+
+                return this.objects[pos];
+            }
             case Constants.InstanceVar: {
                 let object = this.readNext();
-                const number = this.readFixNum();
+                const size = this.readFixnum();
 
-                for (let i = 0; i < number; ++i) {
+                for (let i = 0; i < size; i++) {
                     const key = this.readNext();
-                    const value = this.readNext();
+                    const value = this.readNext() as Uint8Array;
 
-                    // If a string, read as Uint8Array, has ivar :E or :encoding, decode it
+                    // If object is a bytes object, and has encoding symbol, decode it to string
                     if (
-                        object instanceof Uint8Array &&
-                        (key === encodingShortSymbol || key === encodingSymbol) &&
-                        string !== "binary"
+                        (object as Record<string, unknown>).__type === "bytes" &&
+                        [encodingShortSymbol, encodingSymbol].includes(key as string) &&
+                        stringMode !== "binary"
                     ) {
                         if (key === encodingShortSymbol) {
-                            object = decode(object);
+                            object = decode(Uint8Array.from((object as Record<string, unknown>).data as number[]));
                         } else {
-                            object = new TextDecoder(decode(value as Uint8Array)).decode(object);
+                            object = new TextDecoder(decode(value)).decode(
+                                Uint8Array.from((object as Record<string, unknown>).data as number[]),
+                            );
                         }
 
                         this.objects[this.objects.length - 1] = object;
-                    }
-                    // Otherwise try to put the ivar
-                    else if (object != null) {
-                        // Primitive types (boolean, number, string, symbol, ...) cannot hold properties,
-                        // So code below silently fail. Other objects get a [Symbol(@key)] property
-                        this.setInstanceVar(object, key, value, convertInstanceVarsToString);
                     }
                 }
 
@@ -298,141 +168,236 @@ class Loader {
             // the 'singleton class' case is determined by whether the last 'e' is a class
             // here we just prepend the extends into obj.__ruby_extends__
             case Constants.Extended: {
-                const symbol = this.readNext() as symbol;
+                const symbol = this.readNext() as string;
                 const object = this.readNext();
-                const extends_ = defineExtends(object);
 
-                if (extends_) {
-                    extends_.unshift(symbol);
+                if (object && typeof object === "object") {
+                    // @ts-expect-error object can be indexed by string
+                    if (!object[extendsSymbol]) {
+                        // @ts-expect-error object can be indexed by string
+                        object[extendsSymbol] = [symbol];
+                    } else {
+                        // @ts-expect-error object can be indexed by string
+                        object[extendsSymbol].unshift(symbol);
+                    }
                 }
 
                 return object;
             }
             case Constants.Array: {
-                const number = this.readFixNum();
-                const accumulated = this.pushObject(Array(number)) as unknown[];
+                const arrayLength = this.readFixnum();
+                const array = new Array(arrayLength) as unknown[];
+                this.objects.push(array);
 
-                for (let i = 0; i < number; ++i) {
-                    accumulated[i] = this.readNext();
+                for (let i = 0; i < arrayLength; i++) {
+                    array[i] = this.readNext();
                 }
 
-                return accumulated;
+                return array;
             }
-            case Constants.BigNum: {
-                const index = this.readBigNum();
-                return this.pushObject(numeric ? new RubyInteger(index) : index);
+            case Constants.Bignum: {
+                const sign = this.readByte();
+                const length = this.readFixnum() << 1;
+                const bytes = this.readBytes(length);
+
+                let value = 0n;
+
+                for (let i = bytes.length - 1; i >= 0; i--) {
+                    value = (value << 8n) | BigInt(bytes[i]);
+                }
+
+                if (sign !== Constants.Positive) {
+                    value = -value;
+                }
+
+                const bignum = {
+                    __type: "bigint",
+                    value: value.toString(),
+                };
+
+                this.objects.push(bignum);
+                return bignum;
             }
-            case Constants.Class:
-                return this.pushObject(new RubyClass(this.readString()));
+            case Constants.Class: {
+                const objectClass = this.readString();
+                const object = { __class: objectClass, __type: "class" };
+
+                this.objects.push(object);
+                return object;
+            }
             case Constants.Module:
-            case Constants.ModuleOld:
-                return this.pushObject(new RubyModule(this.readString(), type === Constants.ModuleOld));
+            case Constants.ModuleOld: {
+                const objectClass = this.readString();
+                const object = { __class: objectClass, __type: "module", __old: structureType == Constants.ModuleOld };
+
+                this.objects.push(object);
+                return object;
+            }
             case Constants.Float: {
-                const index = this.readFloat();
-                return this.pushObject(numeric ? new RubyFloat(index) : index);
+                const float = this.readString();
+                let result;
+
+                switch (float) {
+                    case "inf":
+                        result = Infinity;
+                        break;
+                    case "-inf":
+                        result = -Infinity;
+                        break;
+                    case "nan":
+                        result = NaN;
+                        break;
+                    default:
+                        result = Number.parseFloat(float);
+                        break;
+                }
+
+                this.objects.push(result);
+                return result;
             }
             case Constants.Hash:
             case Constants.HashDef: {
-                const hashType = this.options.hash;
-                const symbolToString = this.options.convertHashKeysToString;
+                const hashSize = this.readFixnum();
+                const hash: PlainObject = {};
+                this.objects.push(hash);
 
-                switch (hashType) {
-                    case "map": {
-                        const number = this.readFixNum();
-                        const map = this.pushObject(new Map());
-
-                        for (let i = 0; i < number; ++i) {
-                            const key = this.readNext();
-                            const value = this.readNext();
-
-                            map.set(key, value);
-                        }
-
-                        if (type === Constants.HashDef) {
-                            defineHashDefault(map, this.readNext());
-                        }
-
-                        return map;
-                    }
-                    case "wrap": {
-                        const number = this.readFixNum();
-                        const wrapper = this.pushObject(new RubyHash([]));
-
-                        for (let i = 0; i < number; ++i) {
-                            const key = this.readNext();
-                            const value = this.readNext();
-
-                            wrapper.entries.push([key, value]);
-                        }
-
-                        if (type === Constants.HashDef) {
-                            wrapper.default = this.readNext();
-                        }
-
-                        return wrapper;
-                    }
-                    default: {
-                        const number = this.readFixNum();
-                        const hash: Hash = this.pushObject({});
-
-                        for (let i = 0; i < number; ++i) {
-                            const key = this.readNext();
-                            const value = this.readNext();
-
-                            this.setHash(hash, key, value, symbolToString);
-                        }
-
-                        if (type === Constants.HashDef) {
-                            defineHashDefault(hash, this.readNext());
-                        }
-
-                        return hash;
-                    }
-                }
-            }
-            case Constants.Object: {
-                const classSymbol = this.readNext() as symbol;
-                const classString = Symbol.keyFor(classSymbol) as string;
-                const classLike = decodeKnown[classString];
-                const object: RubyObject = this.pushObject(
-                    classLike ? Object.create(classLike.prototype) : new RubyObject(classString)
-                );
-                const number = this.readFixNum();
-
-                for (let i = 0; i < number; ++i) {
+                for (let i = 0; i < hashSize; i++) {
                     const key = this.readNext();
                     const value = this.readNext();
 
-                    this.setInstanceVar(object, key, value, convertInstanceVarsToString);
+                    let keyString = "";
+
+                    if (key === null) {
+                        keyString = "__null__";
+                    } else if (typeof key === "string") {
+                        keyString = key;
+                    } else if (typeof key === "number") {
+                        keyString += Number.isInteger(key) ? "__integer__" : "__float__";
+                        keyString += key.toString();
+                    } else if (Array.isArray(key)) {
+                        keyString += "__array__";
+                        keyString += JSON.stringify(key);
+                    } else if (typeof key === "object" && (key as PlainObject).__type === "object") {
+                        keyString += "__object__";
+                        keyString += JSON.stringify(key);
+                    }
+
+                    hash[keyString] = value;
+                }
+
+                if (structureType === Constants.HashDef) {
+                    hash[defaultSymbol] = this.readNext();
+                }
+
+                return hash;
+            }
+            case Constants.Object: {
+                const objectClass = this.readNext() as string;
+                const classLike = decodeKnown[objectClass];
+                const object = classLike
+                    ? Object.create(classLike.prototype)
+                    : { __class: objectClass, __type: "object" };
+                this.objects.push(object);
+
+                const objectSize = this.readFixnum();
+
+                for (let i = 0; i < objectSize; i++) {
+                    let key = this.readNext() as string;
+                    const value = this.readNext();
+
+                    if (instanceVarPrefix) {
+                        key = key.replace(/^@/, instanceVarPrefix);
+                    }
+
+                    object[key] = value;
                 }
 
                 return object;
             }
-            case Constants.RegExp:
-                return this.pushObject(
-                    wrapRegExp ? new RubyRegexp(this.readString(), this.readByte()) : this.readRegExp()
-                );
-            case Constants.String:
-                return this.pushObject(string === "utf8" ? this.readString() : this.readChunk());
-            case Constants.Struct: {
-                const symbol = this.pushObject(new RubyStruct(Symbol.keyFor(this.readNext() as symbol) as string));
-                const number = this.readFixNum();
-                const hash: Hash = {};
+            case Constants.Regexp: {
+                const expression = this.readString();
+                const options = this.readByte();
+                let flags = "";
 
-                for (let i = 0; i < number; ++i) {
-                    this.setHash(hash, this.readNext(), this.readNext());
+                if (options & Constants.RegExpIgnoreCase) {
+                    flags += "i";
                 }
 
-                symbol.__members = hash;
-                return symbol;
+                if (options & Constants.RegExpExtended) {
+                    flags += "x";
+                }
+
+                if (options & Constants.RegExpMultiline) {
+                    flags += "m";
+                }
+
+                const object = { __type: "regexp", expression, flags };
+
+                this.objects.push(object);
+                return object;
+            }
+            case Constants.String: {
+                const stringBytes = this.readChunk();
+                let object;
+
+                if (stringMode === "utf8") {
+                    try {
+                        object = fatalDecode(stringBytes);
+                    } catch {
+                        object = { __type: "bytes", data: Array.from(stringBytes) };
+                    }
+                } else {
+                    object = { __type: "bytes", data: Array.from(stringBytes) };
+                }
+
+                this.objects.push(object);
+                return object;
+            }
+            case Constants.Struct: {
+                const structClass = this.readNext();
+                const struct: PlainObject = { __class: structClass, __type: "struct" };
+                this.objects.push(struct);
+
+                const structSize = this.readFixnum();
+                const structMembers: PlainObject = {};
+
+                for (let i = 0; i < structSize; i++) {
+                    const key = this.readNext();
+                    const value = this.readNext();
+
+                    let keyString = "";
+
+                    if (key === null) {
+                        keyString = "__null__";
+                    } else if (typeof key === "string") {
+                        keyString = key;
+                    } else if (typeof key === "number") {
+                        keyString += Number.isInteger(key) ? "__integer__" : "__float__";
+                        keyString += key.toString();
+                    } else if (Array.isArray(key)) {
+                        keyString += "__array__";
+                        keyString += JSON.stringify(key);
+                    } else if (typeof key === "object" && (key as PlainObject).__type === "object") {
+                        keyString += "__object__";
+                        keyString += JSON.stringify(key);
+                    }
+
+                    structMembers[keyString] = value;
+                }
+
+                struct.__members = structMembers;
+
+                return struct;
             }
             case Constants.Data:
             case Constants.UserClass:
             case Constants.UserDef:
             case Constants.UserMarshal: {
-                const object = this.pushObject(new RubyObject(Symbol.keyFor(this.readNext() as symbol) as string));
+                const objectClass = this.readNext() as string;
+                const object = { __class: objectClass, __type: "object" } as PlainObject;
+                this.objects.push(object);
 
-                switch (type) {
+                switch (structureType) {
                     case Constants.Data:
                         object.__data = this.readNext();
                         break;
@@ -440,7 +405,7 @@ class Loader {
                         object.__wrapped = this.readNext() as typeof object.__wrapped;
                         break;
                     case Constants.UserDef:
-                        object.__userDefined = this.readChunk();
+                        object.__userDefined = Array.from(this.readChunk());
                         break;
                     case Constants.UserMarshal:
                         object.__userMarshal = this.readNext();
@@ -454,13 +419,13 @@ class Loader {
 }
 
 function toBinary(string: string): Uint8Array {
-    const bytesArray = new Uint8Array(string.length);
+    const bytes = new Uint8Array(string.length);
 
-    for (let i = 0; i < string.length; ++i) {
-        bytesArray[i] = string.charCodeAt(i);
+    for (let i = 0; i < string.length; i++) {
+        bytes[i] = string.charCodeAt(i);
     }
 
-    return bytesArray;
+    return bytes;
 }
 
 function toDataView(data: string | Uint8Array | ArrayBuffer): DataView {
@@ -475,24 +440,11 @@ function toDataView(data: string | Uint8Array | ArrayBuffer): DataView {
 
 /**
  * Load one marshal section from buffer.
- *
- * If you need to load multiple times (like RGSS1), use `loadAll`.
  * ```js
  * load(fs.readFileSync('Scripts.rvdata2'))
  * load(await file.arrayBuffer())
  * ```
  */
 export function load(data: string | Uint8Array | ArrayBuffer, options?: LoadOptions): unknown {
-    return new Loader(toDataView(data), options).get();
-}
-
-export function loadAll(data: string | Uint8Array | ArrayBuffer, options?: LoadOptions): unknown[] {
-    const parser = new Loader(toDataView(data), options);
-    const array: unknown[] = [];
-
-    while (!parser.empty()) {
-        array.push(parser.get());
-    }
-
-    return array;
+    return new Loader(toDataView(data), options).load();
 }

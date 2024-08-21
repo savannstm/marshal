@@ -1,4 +1,4 @@
-## FAQ
+# FAQ
 
 **Do you support [Stream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream) API?**
 
@@ -6,7 +6,7 @@ Because the stream API in the browser and in node.js is not similar at all, it s
 
 **Do you support [BigInt](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt)?**
 
-Currently not, but JavaScript's `number` is big enough to store up to $2^{53}-1$.
+Heck yeah, BigInt is supported. It's serialized to JSON as `{ __type: "bigint", value: "..." }` object.
 
 **Do you support ...?**
 

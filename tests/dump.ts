@@ -1,164 +1,297 @@
-import * as assert from "uvu/assert";
-import * as marshal from "../src";
-import { DumpOptions } from "../src";
-import { describe, rb_load } from "./helper";
+import { dump } from "../src";
+import { getLineNumber } from "./functions";
 
-function dumps(value: unknown, opts: { pre?: string; post?: string } & DumpOptions = {}): Promise<string> {
-    return rb_load(marshal.dump(value, opts), opts.pre, opts.post);
+console.log("Dumping");
+
+// Incorrect Marshal version
+{
+    try {
+        dump(new Uint8Array([0x04, 0x09]));
+        throw `Must panic on incompatible marshal version\nline: ${getLineNumber()}`;
+    } catch {
+        /* empty */
+    }
 }
 
-describe("dump", (test) => {
-    test("trivial value", async () => {
-        assert.is(await dumps(null), "nil");
-        assert.is(await dumps(true), "true");
-        assert.is(await dumps(false), "false");
-        assert.is(await dumps(0), "0");
-        assert.is(await dumps([]), "[]");
-        assert.is(await dumps({}), "{}");
+// Null
+{
+    const left = JSON.stringify(Array.from(dump(null)));
+    const right = JSON.stringify([4, 8, 48]);
+    console.assert(left === right, {
+        line: getLineNumber(),
+        left,
+        right,
     });
+}
 
-    test("number", async () => {
-        assert.is(await dumps(42), "42");
-        assert.is(await dumps(-42), "-42");
-        assert.is(await dumps(114514), "114514");
-        assert.is(await dumps(-1919810), "-1919810");
-        assert.is(await dumps(1145141919810), "1145141919810");
-        assert.is(await dumps(-11451419198), "-11451419198");
-        assert.is(await dumps(123.456), "123.456");
-        assert.is(await dumps(new marshal.RubyInteger(114514)), "114514");
-        assert.is(await dumps(new marshal.RubyInteger(1145141919810)), "1145141919810");
-        assert.is(await dumps(new marshal.RubyFloat(-0)), "-0.0");
-        assert.is(await dumps(1 / 0), "Infinity");
-        assert.is(await dumps(-1 / 0), "-Infinity");
-        assert.is(await dumps(NaN), "NaN");
-    });
+// Boolean
+{
+    {
+        const left = JSON.stringify(Array.from(dump(true)));
+        const right = JSON.stringify([4, 8, 84]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = JSON.stringify(Array.from(dump(false)));
+        const right = JSON.stringify([4, 8, 70]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("string", async () => {
-        assert.is(await dumps("hello"), '"hello"');
-        assert.is(await dumps(new TextEncoder().encode("hello")), '"hello"');
-    });
+// Positive fixnum
+{
+    {
+        const left = JSON.stringify(Array.from(dump(0)));
+        const right = JSON.stringify([4, 8, 105, 0]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = JSON.stringify(Array.from(dump(5)));
+        const right = JSON.stringify([4, 8, 105, 10]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = JSON.stringify(Array.from(dump(300)));
+        const right = JSON.stringify([4, 8, 105, 2, 44, 1]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = JSON.stringify(Array.from(dump(70000)));
+        const right = JSON.stringify([4, 8, 105, 3, 112, 17, 1]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+    {
+        const left = JSON.stringify(Array.from(dump(16777216)));
+        const right = JSON.stringify([4, 8, 105, 4, 0, 0, 0, 1]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("regexp", async () => {
-        assert.is(await dumps(/hello/), "/hello/");
-    });
+// Negative fixnum
+{
+    {
+        const left = JSON.stringify(Array.from(dump(-5)));
+        const right = JSON.stringify([4, 8, 105, 246]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-    test("hash", async () => {
-        assert.is(await dumps(new marshal.RubyHash([["a", 1]])), '{"a"=>1}');
-        assert.is(await dumps(new Map([["a", 1]])), '{"a"=>1}');
+    {
+        const left = JSON.stringify(Array.from(dump(-300)));
+        const right = JSON.stringify([4, 8, 105, 254, 212, 254]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const a = new marshal.RubyHash([
-            ["x", 1],
-            ["x", 1],
+    {
+        const left = JSON.stringify(Array.from(dump(-70000)));
+        const right = JSON.stringify([4, 8, 105, 253, 144, 238, 254]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Bignum
+{
+    const left = JSON.stringify(Array.from(dump({ __type: "bigint", value: "36893488147419103232" })));
+    const right = JSON.stringify([4, 8, 108, 43, 10, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
+
+// Float
+{
+    {
+        const left = JSON.stringify(Array.from(dump(0.0)));
+        const right = JSON.stringify([4, 8, 105, 0]);
+
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    {
+        const left = JSON.stringify(Array.from(dump(-0.0)));
+        const right = JSON.stringify([4, 8, 102, 7, 45, 48]);
+
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    {
+        const left = JSON.stringify(Array.from(dump(3.14159)));
+        const right = JSON.stringify([4, 8, 102, 12, 51, 46, 49, 52, 49, 53, 57]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+
+    {
+        const left = JSON.stringify(Array.from(dump(-2.71828)));
+        const right = JSON.stringify([4, 8, 102, 13, 45, 50, 46, 55, 49, 56, 50, 56]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
+
+// Strings with instance vars
+{
+    {
+        const left = JSON.stringify(Array.from(dump("Short string")));
+        const right = JSON.stringify([
+            4, 8, 73, 34, 17, 83, 104, 111, 114, 116, 32, 115, 116, 114, 105, 110, 103, 6, 58, 6, 69, 84,
         ]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        assert.is(await dumps(a), '{"x"=>1}');
-    });
+    {
+        const left = JSON.stringify(Array.from(dump("Long string".repeat(20))));
+        const right = JSON.stringify([
+            4, 8, 73, 34, 1, 220, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+            114, 105, 110, 103, 6, 58, 6, 69, 84,
+        ]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("circular", async () => {
-        const arr: unknown[] = [];
-        arr.push(arr);
-        assert.is(await dumps(arr), "[[...]]");
+// Force strings to binary
+{
+    {
+        const left = JSON.stringify(
+            Array.from(dump({ __type: "bytes", data: [83, 104, 111, 114, 116, 32, 115, 116, 114, 105, 110, 103] })),
+        );
+        const right = JSON.stringify([4, 8, 34, 17, 83, 104, 111, 114, 116, 32, 115, 116, 114, 105, 110, 103]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const hash: marshal.Hash = {};
-        hash[Symbol.for("a")] = hash;
-        assert.is(await dumps(hash), "{:a=>{...}}");
+    {
+        const left = JSON.stringify(
+            Array.from(
+                dump({
+                    __type: "bytes",
+                    data: [
+                        76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105,
+                        110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116,
+                        114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32,
+                        115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110,
+                        103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76,
+                        111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110,
+                        103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+                        105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115,
+                        116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103,
+                        32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111,
+                        110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103,
+                    ],
+                }),
+            ),
+        );
+        const right = JSON.stringify([
+            4, 8, 34, 1, 220, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114, 105, 110, 103, 76, 111, 110, 103, 32, 115, 116, 114,
+            105, 110, 103,
+        ]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-        const obj = new marshal.RubyObject(Symbol.for("Object"));
-        obj[Symbol.for("@a")] = obj;
-        assert.match(await dumps(obj), /^(#<Object:0x[a-f0-9]+) @a=\1 ...>>$/);
-    });
+// Regexp
+{
+    // Without x flag
+    {
+        const left = JSON.stringify(Array.from(dump({ __type: "regexp", expression: "ligma", flags: "im" })));
+        const right = JSON.stringify([4, 8, 47, 10, 108, 105, 103, 109, 97, 5]);
 
-    test("extended", async () => {
-        const pre = "class A end; module M end";
-        const post = "print a.singleton_class.ancestors[0..1].inspect";
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-        const obj = new marshal.RubyObject(Symbol.for("A"));
-        obj[marshal.extendsString] = [Symbol.for("M")];
-        assert.match(await dumps(obj, { pre, post }), /^\[#<Class:#<A:0x[a-f0-9]+>>, M]/);
+    // With x flag
+    {
+        const left = JSON.stringify(Array.from(dump({ __type: "regexp", expression: "ligma", flags: "ixm" })));
+        const right = JSON.stringify([4, 8, 47, 10, 108, 105, 103, 109, 97, 7]);
 
-        obj[marshal.extendsString] = [Symbol.for("M"), Symbol.for("A")];
-        assert.match(await dumps(obj, { pre, post }), /^\[M, #<Class:#<A:0x[a-f0-9]+>>]/);
-    });
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("hashStringKeysToSymbol", async () => {
-        const obj = { a: 1, b: 2 };
-        const objSymbolStringKeys = { ":SYMBOL:a": 1, ":SYMBOL:b": 2 };
+// Links
+{
+    const left = JSON.stringify(Array.from(dump({ __type: "bigint", value: "-36893488147419103232" })));
+    const right = JSON.stringify([4, 8, 108, 45, 10, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
 
-        assert.is(await dumps(obj), '{"a"=>1, "b"=>2}');
-        assert.is(await dumps(objSymbolStringKeys), "{:a=>1, :b=>2}");
-    });
+// Array
+{
+    new TextDecoder().decode(dump([1, "two", 3.0, [4], { __integer__5: 6 }]));
+    const left = JSON.stringify(Array.from(dump([1, "two", 3.0, [4], { __integer__5: 6 }])));
+    const right = JSON.stringify([
+        4, 8, 91, 10, 105, 6, 73, 34, 8, 116, 119, 111, 6, 58, 6, 69, 84, 105, 8, 91, 6, 105, 9, 123, 6, 105, 10, 105,
+        11,
+    ]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
 
-    test("error on undefined", async () => {
-        try {
-            await dumps({ a: undefined });
-            assert.unreachable("should throw error");
-        } catch (e) {
-            assert.instance(e, TypeError);
-            assert.match(e.message, /Type 'undefined' cannot be dumped./);
-        }
-    });
+// Hash
+{
+    {
+        const left = JSON.stringify(
+            Array.from(
+                dump({
+                    __integer__1: "one",
+                    two: 2,
+                    '__object__{"__class":"__symbol__Object","__type":"object"}': null,
+                }),
+            ),
+        );
+        const right = JSON.stringify([
+            4, 8, 123, 8, 105, 6, 73, 34, 8, 111, 110, 101, 6, 58, 6, 69, 84, 73, 34, 8, 116, 119, 111, 6, 59, 6, 84,
+            105, 7, 111, 58, 11, 79, 98, 106, 101, 99, 116, 0, 48,
+        ]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
 
-    test("user class", async () => {
-        const a = new marshal.RubyObject(Symbol.for("MyHash"));
-        a[marshal.extendsString] = [Symbol.for("MyHash")];
-        a.wrapped = {}; // a Hash
-        assert.is(await dumps(a, { pre: "class MyHash < Hash; end", post: "print a.class" }), "MyHash");
-    });
+    {
+        const left = JSON.stringify(Array.from(dump({ __ruby_default__: "default" })));
+        const right = JSON.stringify([4, 8, 125, 0, 73, 34, 12, 100, 101, 102, 97, 117, 108, 116, 6, 58, 6, 69, 84]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}
 
-    test("user defined", async () => {
-        const a = new marshal.RubyObject(Symbol.for("UserDefined"));
-        a.userDefined = Uint8Array.of(42);
-        const pre = `
-      class UserDefined
-        attr_accessor :a
-        def self._load(data)
-          obj = allocate
-          obj.a = data
-          obj
-        end
-      end
-    `;
-        const post = `print a.a`;
-        assert.is(await dumps(a, { pre, post }), "*");
-    });
+// Struct
+{
+    const left = JSON.stringify(
+        Array.from(
+            dump({
+                __class: "__symbol__Person",
+                __type: "struct",
+                __members: { __symbol__name: "Alice", __symbol__age: 30 },
+            }),
+        ),
+    );
+    const right = JSON.stringify([
+        4, 8, 83, 58, 11, 80, 101, 114, 115, 111, 110, 7, 58, 9, 110, 97, 109, 101, 73, 34, 10, 65, 108, 105, 99, 101,
+        6, 58, 6, 69, 84, 58, 8, 97, 103, 101, 105, 35,
+    ]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
 
-    test("user marshal", async () => {
-        const a = new marshal.RubyObject(Symbol.for("A"));
-        a.userMarshal = []; // an Array
-        const pre = "class A; def marshal_load(obj) print obj.inspect end end";
-        assert.is(await dumps(a, { pre, post: "" }), "[]");
-    });
-
-    test("known", async () => {
-        class A {}
-        const a = new A();
-
-        try {
-            a[marshal.extendsString] = [Symbol.for("A")];
-            await dumps(a);
-            assert.unreachable("should throw error");
-        } catch (e) {
-            assert.instance(e, TypeError);
-            assert.match(e.message, /Cannot dump type object/);
-        }
-
-        const pre = "class A end";
-        assert.match(await dumps(a, { pre, encodeKnown: { A } }), /^#<A:0x[a-f0-9]+>$/);
-        assert.match(await dumps(a, { pre, encodeUnknown: (a) => a?.constructor?.name }), /^#<A:0x[a-f0-9]+>$/);
-    });
-
-    test("struct", async () => {
-        const a = new marshal.RubyStruct(Symbol.for("A"));
-        a.members = { [Symbol.for("a")]: 1 };
-        assert.is(await dumps(a, { pre: "A = Struct.new :a" }), "#<struct A a=1>");
-    });
-
-    test("class and module", async () => {
-        assert.is(await dumps(new marshal.RubyClass("A"), { pre: "class A end" }), "A");
-        assert.is(await dumps(new marshal.RubyModule("A"), { pre: "module A end" }), "A");
-    });
-
-    test("range", async () => {
-        assert.is(await dumps(new marshal.RubyRange(1, 10, true)), "1...10");
-    });
-});
+// Object
+{
+    {
+        const left = JSON.stringify(
+            Array.from(dump({ __class: "__symbol__CustomObject", __type: "object", "__symbol__@data": "object data" })),
+        );
+        const right = JSON.stringify([
+            4, 8, 111, 58, 17, 67, 117, 115, 116, 111, 109, 79, 98, 106, 101, 99, 116, 6, 58, 10, 64, 100, 97, 116, 97,
+            73, 34, 16, 111, 98, 106, 101, 99, 116, 32, 100, 97, 116, 97, 6, 58, 6, 69, 84,
+        ]);
+        console.assert(left === right, { line: getLineNumber(), left, right });
+    }
+}

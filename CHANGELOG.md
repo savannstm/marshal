@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+-   Removed object links writing in `dump()` because of unstable work. Output files now may be larger, but it won't affect them anyhow.
+
 ## 0.6.0
 
 -   :warning: BREAKING. Read the [API Reference](./docs/api.md) to learn the new API.

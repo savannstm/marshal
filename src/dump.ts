@@ -18,7 +18,7 @@ class Dumper {
         }); // 16 MB might not be sufficient for some files
         this.bytes = new Uint8Array(this.buffer);
         this.bytePosition = 0;
-        this.objects = new Map([[undefined, 0]]);
+        this.objects = new Map();
         this.symbols = new Map();
 
         this.options = dumpOptions;
@@ -68,9 +68,9 @@ class Dumper {
         if (string.startsWith("__symbol__")) {
             this.writeSymbol(string);
         } else {
-            if (!this.symbols.has(string)) {
-                this.symbols.set(string, this.symbols.size);
-            }
+            //if (!this.objects.has(string)) {
+            //    this.objects.set(string, this.objects.size);
+            //}
 
             this.writeByte(Constants.InstanceVar);
             this.writeByte(Constants.String);
@@ -223,9 +223,9 @@ class Dumper {
     }
 
     private writeKnown(object: Record<string, unknown>, objectClass: string) {
-        if (!this.objects.has(object)) {
-            this.objects.set(object, this.objects.size);
-        }
+        //if (!this.objects.has(object)) {
+        //    this.objects.set(object, this.objects.size);
+        //}
 
         if (object[extendsSymbol]) {
             this.writeExtended(object[extendsSymbol] as string[]);
@@ -239,6 +239,12 @@ class Dumper {
     private writeStructure(object: unknown) {
         const encodeKnown = this.options.encodeKnown || {};
         const encodeUnknown = this.options.encodeUnknown;
+
+        //if (this.objects.has(JSON.stringify(object))) {
+        //    this.writeByte(Constants.Link);
+        //    this.writeNumber(this.objects.get(JSON.stringify(object)) as number);
+        //    return;
+        //}
 
         switch (true) {
             case object === undefined:
@@ -257,22 +263,18 @@ class Dumper {
                     this.writeByte(Constants.Fixnum);
                     this.writeNumber(object);
                 } else {
-                    if (!this.objects.has(object)) {
-                        this.objects.set(object, this.objects.size);
-                    }
+                    //if (!this.objects.has(object)) {
+                    //    this.objects.set(object, this.objects.size);
+                    //}
 
                     this.writeByte(Constants.Float);
                     this.writeFloat(object);
                 }
                 break;
-            case this.objects.has(object):
-                this.writeByte(Constants.Link);
-                this.writeNumber(this.objects.get(object) as number);
-                break;
             case Array.isArray(object):
-                if (!this.objects.has(object)) {
-                    this.objects.set(object, this.objects.size);
-                }
+                //if (!this.objects.has(JSON.stringify(object))) {
+                //    this.objects.set(JSON.stringify(object), this.objects.size);
+                //}
 
                 this.writeByte(Constants.Array);
                 this.writeNumber(object.length);
@@ -286,9 +288,9 @@ class Dumper {
 
                 switch (obj.__type) {
                     case "object": {
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         if (obj.__data) {
                             this.writeClass(Constants.Data, obj);
@@ -320,9 +322,9 @@ class Dumper {
                         break;
                     }
                     case "struct":
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         this.writeClass(Constants.Struct, obj);
                         this.writeInstanceVar(obj.__members as object);
@@ -330,34 +332,34 @@ class Dumper {
                     case "bytes": {
                         const bytes = Uint8Array.from(obj.data as number[]);
 
-                        if (!this.objects.has(bytes)) {
-                            this.objects.set(bytes, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         this.writeByte(Constants.String);
                         this.writeBytes(bytes);
                         break;
                     }
                     case "class":
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         this.writeByte(Constants.Class);
                         this.writeStringBytes(obj.__name as string);
                         break;
                     case "module":
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         this.writeByte(obj.__old ? Constants.ModuleOld : Constants.Module);
                         this.writeStringBytes(obj.__name as string);
                         break;
                     case "regexp": {
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         this.writeByte(Constants.Regexp);
                         this.writeStringBytes(obj.expression as string);
@@ -381,9 +383,9 @@ class Dumper {
                         break;
                     }
                     case "bigint": {
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(obj)) {
+                        //    this.objects.set(obj, this.objects.size);
+                        //}
 
                         const bignum = BigInt(obj.value as string);
 
@@ -393,9 +395,9 @@ class Dumper {
                         break;
                     }
                     default: {
-                        if (!this.objects.has(obj)) {
-                            this.objects.set(obj, this.objects.size);
-                        }
+                        //if (!this.objects.has(JSON.stringify(obj))) {
+                        //    this.objects.set(JSON.stringify(obj), this.objects.size);
+                        //}
 
                         const defaultValue = obj[defaultSymbol];
                         this.writeByte(!defaultValue ? Constants.Hash : Constants.HashDef);

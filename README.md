@@ -27,20 +27,24 @@ This library has two main functions: `load()` and `dump()`.
 `load()` takes a `Uint8Array`, `ArrayBuffer` or `string`, consisting of Marshal data bytes as its only argument, and outputs JSON object.
 `dump()` takes a JavaScript object, and outputs respective Marshal Uint8Array of bytes.
 
+### Note
+
+This library does **NOT** write object links in `dump()`. Because of it, it may produce larger files than initial. Otherwise, it shouldn't affect output files in any other way. It you want to help with solving this problem, consider submitting a pull request.
+
 `load()` serializes Ruby data to JSON using the table:
 
-| Ruby object                                    | Serialized to JSON                                                           |
-| ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `nil`                                          | `null`                                                                       |
-| `1337` (Integer)                               | `1337`                                                                       |
-| `36893488147419103232` (Big Integer)           | `{ __type: "bigint", value: "36893488147419103232" }` (Plain object)         |
-| `13.37` (Float)                                | `13.37`                                                                      |
-| `"ligma"` (String)                             | `"ligma"`                                                                    |
-| `:ligma` (Symbol)                              | `"__symbol__ligma"`                                                          |
-| `/ligma/xim` (Regex)                           | `{ "__type": "regexp", "expression": "ligma", flags: "xim" }` (Plain object) |
-| `[]` (Array)                                   | `[]`                                                                         |
-| `{}` (Hash)                                    | `{}` (Plain object)                                                          |
-| `Object.new` (Including structs, modules etc.) | `{ "__class": "__symbol__Object", "__type": "object" }` (Plain object)       |
+| Ruby object                                    | Serialized to JSON                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `nil`                                          | `null`                                                                         |
+| `1337` (Integer)                               | `1337`                                                                         |
+| `36893488147419103232` (Big Integer)           | `{ __type: "bigint", value: "36893488147419103232" }` (Plain object)           |
+| `13.37` (Float)                                | `13.37`                                                                        |
+| `"ligma"` (String)                             | `"ligma"`                                                                      |
+| `:ligma` (Symbol)                              | `"__symbol__ligma"`                                                            |
+| `/ligma/xim` (Regex)                           | `{ "__type": "regexp", "expression": "ligma", "flags": "xim" }` (Plain object) |
+| `[]` (Array)                                   | `[]`                                                                           |
+| `{}` (Hash)                                    | `{}` (Plain object)                                                            |
+| `Object.new` (Including structs, modules etc.) | `{ "__class": "__symbol__Object", "__type": "object" }` (Plain object)         |
 
 ### String
 

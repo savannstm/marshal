@@ -95,6 +95,13 @@ console.log("Dumping");
     console.assert(left === right, { line: getLineNumber(), left, right });
 }
 
+// Negative bignum
+{
+    const left = JSON.stringify(Array.from(dump({ __type: "bigint", value: "-36893488147419103232" })));
+    const right = JSON.stringify([4, 8, 108, 45, 10, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
+    console.assert(left === right, { line: getLineNumber(), left, right });
+}
+
 // Float
 {
     {
@@ -220,13 +227,6 @@ console.log("Dumping");
     }
 }
 
-// Links
-{
-    const left = JSON.stringify(Array.from(dump({ __type: "bigint", value: "-36893488147419103232" })));
-    const right = JSON.stringify([4, 8, 108, 45, 10, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
-    console.assert(left === right, { line: getLineNumber(), left, right });
-}
-
 // Array
 {
     new TextDecoder().decode(dump([1, "two", 3.0, [4], { __integer__5: 6 }]));
@@ -251,7 +251,7 @@ console.log("Dumping");
             ),
         );
         const right = JSON.stringify([
-            4, 8, 123, 8, 105, 6, 73, 34, 8, 111, 110, 101, 6, 58, 6, 69, 84, 73, 34, 8, 116, 119, 111, 6, 59, 6, 84,
+            4, 8, 123, 8, 105, 6, 73, 34, 8, 111, 110, 101, 6, 58, 6, 69, 84, 73, 34, 8, 116, 119, 111, 6, 59, 0, 84,
             105, 7, 111, 58, 11, 79, 98, 106, 101, 99, 116, 0, 48,
         ]);
         console.assert(left === right, { line: getLineNumber(), left, right });

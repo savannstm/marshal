@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+-   Fixed `instanceVarPrefix` option logic in `load()` and added its logic to `dump()` function.
+
 ## 0.6.1
 
 -   Removed object links writing in `dump()` because of unstable work. Output files now may be larger, but it won't affect them anyhow.

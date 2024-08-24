@@ -13,14 +13,13 @@ class Dumper {
     private readonly options: DumpOptions;
 
     constructor(dumpOptions: DumpOptions = {}) {
-        this.buffer = new ArrayBuffer(16, {
+        this.buffer = new ArrayBuffer(128, {
             maxByteLength: dumpOptions.maxByteLength ? dumpOptions.maxByteLength : 16000000,
         }); // 16 MB might not be sufficient for some files
         this.bytes = new Uint8Array(this.buffer);
         this.bytePosition = 0;
         this.objects = new Map();
         this.symbols = new Map();
-
         this.options = dumpOptions;
     }
 
@@ -213,7 +212,16 @@ class Dumper {
             this.writeNumber(objectSize);
 
             for (const key of keys) {
-                this.writeSymbol(key);
+                let keyChangedPrefix: null | string = null;
+
+                if (
+                    this.options.instanceVarPrefix !== undefined &&
+                    key.startsWith("__symbol__" + this.options.instanceVarPrefix)
+                ) {
+                    keyChangedPrefix = "@" + key.slice(10 + this.options.instanceVarPrefix.length);
+                }
+
+                this.writeSymbol(keyChangedPrefix ?? key);
                 // @ts-expect-error object can be indexed by string
                 this.writeStructure(object[key]);
             }

@@ -305,8 +305,10 @@ class Loader {
                     let key = this.readNext() as string;
                     const value = this.readNext();
 
-                    if (instanceVarPrefix) {
+                    if (instanceVarPrefix !== undefined && key.startsWith("__symbol__@")) {
+                        key = key.slice(10);
                         key = key.replace(/^@/, instanceVarPrefix);
+                        key = "__symbol__" + key;
                     }
 
                     object[key] = value;
